@@ -290,13 +290,19 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: [
-                  // bucket 提到最前 (替换原来的 "/"), 点它 = 切换 bucket.
+                  // bucket 提到最前 (替换原来的 "/").
+                  // 拆 icon + 名字两个点击区:
+                  //   - icon  → 切换 bucket (弹 picker)
+                  //   - 名字  → 回到当前 bucket 根目录
                   // 没选 bucket 时这一段直接隐藏, breadcrumb 显示一个 "/" 提示.
                   if (bucket != null) ...[
-                    _Crumb(
+                    _BucketCrumb(
                       label: bucket,
-                      isSegment: true,
-                      onTap: _showBucketPicker,
+                      onIconTap: _showBucketPicker,
+                      onLabelTap: () {
+                        ref.read(currentPrefixProvider.notifier).state = '';
+                        ref.read(objectListProvider.notifier).refresh();
+                      },
                     ),
                     for (var i = 0; i < segments.length; i++) ...[
                       const SizedBox(width: 4),
@@ -937,6 +943,85 @@ class _CrumbState extends State<_Crumb> {
                   : scheme.onSurface.withValues(alpha: 0.5),
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Bucket crumb: 拆 icon + 名字 两个独立点击区域.
+///
+/// 之前整块点 = 弹 bucket picker, 没法"回 bucket 根目录" (只能点最前面的 "/"
+/// 或者切到别的 bucket 再切回来). 拆开后:
+/// - 点 icon → 弹 bucket picker (换 bucket)
+/// - 点名字 → 回到当前 bucket 根目录 (清 prefix, 跟 Finder 行为一致)
+class _BucketCrumb extends StatefulWidget {
+  final String label;
+  final VoidCallback onIconTap;
+  final VoidCallback onLabelTap;
+  const _BucketCrumb({
+    required this.label,
+    required this.onIconTap,
+    required this.onLabelTap,
+  });
+
+  @override
+  State<_BucketCrumb> createState() => _BucketCrumbState();
+}
+
+class _BucketCrumbState extends State<_BucketCrumb> {
+  bool _hover = false;
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hover = true),
+      onExit: (_) => setState(() => _hover = false),
+      cursor: SystemMouseCursors.click,
+      // 整个单元 hover 一起高亮, 不区分 icon / label 子区域
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 80),
+        padding: const EdgeInsets.only(left: 2, right: 6, top: 3, bottom: 3),
+        decoration: BoxDecoration(
+          color: _hover ? scheme.primary.withValues(alpha: 0.12) : null,
+          borderRadius: BorderRadius.circular(3),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Icon: 独立点击区域 = 换 bucket
+            Tooltip(
+              message: '切换 bucket',
+              child: GestureDetector(
+                onTap: widget.onIconTap,
+                // 加大 hit area 一点, icon 13px 直接点有点小
+                child: Padding(
+                  padding: const EdgeInsets.all(3),
+                  child: Icon(
+                    Icons.folder_outlined,
+                    size: 13,
+                    color: scheme.primary,
+                  ),
+                ),
+              ),
+            ),
+            // Label: 独立点击区域 = 回到根
+            Tooltip(
+              message: '回到 bucket 根目录',
+              child: GestureDetector(
+                onTap: widget.onLabelTap,
+                child: Text(
+                  widget.label,
+                  style: theme.textTheme.mono?.copyWith(
+                    fontSize: 12,
+                    color: scheme.onSurface,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
