@@ -112,16 +112,41 @@ class S3Client {
           : (body == null ? ResponseType.json : ResponseType.plain),
       contentType: extraHeaders['content-type'] ?? 'application/octet-stream',
       followRedirects: false,
+      // 不让 dio 默认在 4xx 抛, 让我们自己嗅探 body + 检 status 后抛带语义的错误.
+      // 之前默认 `s < 500` 加上 PUT/POST 类调用完全不看 body,
+      // 导致 RustFS "200 + <Error>...</Error>" 的失败被静默吞掉,
+      // 上传提示成功但服务端实际没建出来.
       validateStatus: (s) => s != null && s < 500,
     );
 
-    return _dio.request<dynamic>(
+    final resp = await _dio.request<dynamic>(
       fullUrl,
       data: body,
       options: opts,
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
     );
+
+    // 嗅探 RustFS / 部分 MinIO fork 行为: HTTP 200 但 body 是 <Error>...
+    // 写操作 (PUT/POST/DELETE) 之前不调 parseS3Xml, 这条 sniff 之前也没接进来,
+    // 静默吞掉, 调上传的人看到 void 返回就当成功了.
+    if (resp.data is String) {
+      checkS3ErrorBody(resp.data as String);
+    }
+
+    // 兜底: 4xx / 5xx 但 body 不是 Error XML (空 body / HTML 错误页 /
+    // S3 返回纯文本 "Access Denied" 等), 也不应该当成成功. validateStatus 已
+    // 让 dio 不抛 4xx, 5xx 会抛 DioException, 我们这里补 4xx 这条.
+    final code = resp.statusCode ?? 0;
+    if (code >= 400) {
+      final body = resp.data is String ? resp.data as String : '';
+      throw S3Error(
+        'HTTP$code',
+        body.isEmpty ? 'No response body' : _truncateBody(body, 200),
+      );
+    }
+
+    return resp;
   }
 
   String _payloadHash(dynamic body) {
@@ -181,7 +206,7 @@ class S3Client {
         query: query,
       );
 
-      final doc = _parseS3Xml(resp.data as String);
+      final doc = parseS3Xml(resp.data as String);
       // 文件夹 (CommonPrefix)
       for (final cp in doc.findAllElements('CommonPrefixes')) {
         final p = cp.getElement('Prefix')?.innerText ?? '';
@@ -375,7 +400,7 @@ class S3Client {
       path: path,
       query: {'uploads': ''},
     );
-    final doc = _parseS3Xml(resp.data as String);
+    final doc = parseS3Xml(resp.data as String);
     return doc.getElement('InitiateMultipartUploadResult')!
         .getElement('UploadId')!
         .innerText;
@@ -468,7 +493,7 @@ class S3Client {
       },
     );
     // 解析返回的 <Error> 计数
-    final doc = _parseS3Xml(resp.data as String);
+    final doc = parseS3Xml(resp.data as String);
     final errors = doc.findAllElements('Error').length;
     return keys.length - errors;
   }
@@ -537,7 +562,7 @@ class S3Client {
       host: _host(),
       path: '/',
     );
-    final doc = _parseS3Xml(resp.data as String);
+    final doc = parseS3Xml(resp.data as String);
     return doc
         .findAllElements('Bucket')
         .map((b) => b.getElement('Name')?.innerText ?? '')
@@ -568,34 +593,54 @@ class S3Client {
   }
 }
 
-/// 安全解析 S3 XML 响应. RustFS / 部分 MinIO fork 在凭证错/无权限/路径不存在时会
-/// 返回 HTTP 200 + `<Error><Code>InvalidRequest</Code><Message>...</Message></Error>`,
-/// 不主动抛. 之前直接 `xml.XmlDocument.parse` 会被 `findAllElements('Bucket')` 等
-/// 静默吞掉, 错误凭证也显示"空 bucket". 这里先 sniff 根节点是不是 Error.
-xml.XmlDocument _parseS3Xml(String body) {
-  // 快速判断: 只在响应像 XML 且包含 <Error> 时才走慢路径, 正常 ListBuckets
-  // / ListObjects 响应包含的 <Error> 关键字很罕见, 误判成本几乎为 0.
-  if (body.contains('<Error>') &&
-      (body.trimLeft().startsWith('<?xml') ||
-          body.trimLeft().startsWith('<'))) {
-    final probe = xml.XmlDocument.parse(body);
-    if (probe.rootElement.name.local == 'Error') {
-      final code = probe.findAllElements('Code').firstOrNull?.innerText ?? 'Unknown';
-      final msg =
-          probe.findAllElements('Message').firstOrNull?.innerText ?? '';
-      throw _S3Error(code, msg);
-    }
-    return probe;
-  }
+/// 安全解析 S3 XML 响应. 先 sniff 是不是 Error 根节点 (RustFS 行为),
+/// 没问题就正常 parse 返回给调用方. 之前这里直接把 sniff 跟 parse 揉一起,
+/// 调用方如果忘了 sniff (e.g. uploadBytes), 就会吞掉失败.
+xml.XmlDocument parseS3Xml(String body) {
+  checkS3ErrorBody(body);
   return xml.XmlDocument.parse(body);
 }
 
+/// 嗅探 S3 错误响应 body. 命中 `&lt;Error&gt;` 根节点时抛 [S3Error],
+/// 让调用方在拿到响应第一时间知道失败, 而不是被 void / 空 list 静默吞掉.
+///
+/// 覆盖的场景:
+/// - RustFS / 部分 MinIO fork: 凭证错 / 无权限 / 路径不存在时返回
+///   `HTTP 200` + `<Error><Code>...</Code><Message>...</Message></Error>`.
+///   dio 默认 validateStatus 不抛, 业务代码如果不主动 sniff 就当成成功.
+void checkS3ErrorBody(String body) {
+  // 快速预检: 包含 <Error> 且像 XML 才走 parse 慢路径, 避免对 JSON /
+  // 大文件 body 误触发.
+  if (!body.contains('<Error>')) return;
+  final head = body.trimLeft();
+  if (!(head.startsWith('<?xml') || head.startsWith('<'))) return;
+  try {
+    final probe = xml.XmlDocument.parse(body);
+    if (probe.rootElement.name.local == 'Error') {
+      final code =
+          probe.findAllElements('Code').firstOrNull?.innerText ?? 'Unknown';
+      final msg =
+          probe.findAllElements('Message').firstOrNull?.innerText ?? '';
+      throw S3Error(code, msg);
+    }
+  } on S3Error {
+    rethrow;
+  } catch (_) {
+    // body 含 <Error> 但 XML parse 失败 (e.g. 不规范), 仍按 Error 处理
+    // 避免 RustFS 边界 case 静默吞掉.
+    throw S3Error('MalformedError', _truncateBody(body, 200));
+  }
+}
+
+String _truncateBody(String s, int n) =>
+    s.length <= n ? s : '${s.substring(0, n)}...';
+
 /// S3 服务端在 HTTP 200 里塞 Error XML 时的异常 (RustFS / 部分 MinIO fork 会这样).
 /// 比 DioException 简单, 错误信息直接来自服务端 XML 的 Code + Message.
-class _S3Error implements Exception {
+class S3Error implements Exception {
   final String code;
   final String message;
-  _S3Error(this.code, this.message);
+  S3Error(this.code, this.message);
 
   @override
   String toString() => 'S3 $code: $message';
