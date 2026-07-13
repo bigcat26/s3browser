@@ -1,0 +1,73 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# ---- 项目特定 ----
+# Android 本地 SDK 路径 (含用户名, 不应入库)
+android/local.properties
+**/local.properties
+
+# Flutter 版本管理器 (fvm 会在项目根放一个 .fvm/ 软链)
+.fvm/
+
+# Claude Code / agent 工具的本地状态
+.claude/
+
+# macOS 构建产物 (CocoaPods)
+# (Flutter 默认 macos/.gitignore 已覆盖 Pods/ephemeral/, 这里再补 *.app 防误提交)
+*.app
+
+# 调试符号 + dSYM
+*.dSYM/
+*.dSYM.zip
+
+# 临时文件
+*~
+*.tmp
+*.bak
+
+# Generated Dart (e.g. build_runner 产物)
+# **/*.g.dart
+# **/*.freezed.dart

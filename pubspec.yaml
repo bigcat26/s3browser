@@ -1,0 +1,48 @@
+name: s3browser
+description: "S3/MinIO 跨端文件浏览器 — 手机 + 桌面统一"
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # 状态管理
+  flutter_riverpod: ^2.5.1
+
+  # AWS S3 官方 Dart SDK — 支持 S3/MinIO 全 API（含 multipart upload, presigned URL, list objects v2）
+  aws_s3_api: ^2.0.0
+
+  # HTTP（备用，部分场景走原始 HTTP）
+  dio: ^5.4.0
+
+  # 桌面拖拽（macOS/Windows/Linux）
+  desktop_drop: ^0.4.0
+  cross_file: ^0.3.3+1
+
+  # 文件选择 + 本地存储
+  file_picker: ^8.0.0+1
+  path_provider: ^2.1.2
+  path: ^1.9.0
+  shared_preferences: ^2.2.2
+
+  # 工具
+  intl: ^0.19.0
+  collection: ^1.18.0
+  mime: ^1.0.6
+  xml: ^6.5.0
+  crypto: ^3.0.3
+  uuid: ^4.5.1
+  google_fonts: ^6.2.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
