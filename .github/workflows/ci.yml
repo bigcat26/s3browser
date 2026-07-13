@@ -1,0 +1,141 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 同分支的新 push 自动取消旧 build (节省 CI 分钟)
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---- 1) test: 最便宜的 ubuntu 跑, 跑通了再上 build ----
+  test:
+    name: test (ubuntu)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          # 缓存 ~/.pub-cache + Flutter SDK, 第二次跑能省 1-2 分钟
+          cache: true
+          # 项目要求 flutter >= 3.38.4, stable 通常满足. 显式钉版本能稳定 CI.
+          flutter-version: '3.44.6'
+
+      - name: Print versions
+        run: |
+          flutter --version
+          dart --version
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: analyze
+        # analyze 0 issue 才进 build, 快速 fail
+        run: flutter analyze
+
+      - name: test
+        run: flutter test
+
+  # ---- 2) build-android ----
+  # ubuntu 跑, 需要 Java + Android SDK.
+  # github-hosted ubuntu-latest 自带 ANDROID_HOME=/usr/local/lib/android/sdk,
+  # 但版本可能不是项目要的. 直接用 subosito/flutter-action 自带 Android 命令.
+  build-android:
+    name: build android (ubuntu)
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          flutter-version: '3.44.6'
+
+      - run: flutter pub get
+
+      - name: Build APK (release, split per ABI)
+        # --split-per-abi: 给 arm64 / armeabi-v7a / x86_64 各出一个 APK,
+        # 体积小. 想要 universal 去掉这个 flag.
+        run: flutter build apk --release --split-per-abi
+
+      - name: Upload APK artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: build/app/outputs/flutter-apk/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---- 3) build-macos ----
+  # 需要 Xcode + CocoaPods. macos-latest 自带.
+  # --no-codesign: CI 不签名 (没开发者证书), 用户自己 build 时再签.
+  # 完整 .app 在 build/macos/Build/Products/Release/ 下, 几十 MB.
+  build-macos:
+    name: build macos (macos)
+    needs: test
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          flutter-version: '3.44.6'
+
+      - run: flutter pub get
+      - run: flutter build macos --release
+
+      - name: Upload .app artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          # release build 路径, 如果将来加 entitlements / signing 调整这里
+          path: build/macos/Build/Products/Release/*.app
+          if-no-files-found: error
+          retention-days: 14
+
+  # ---- 4) build-windows ----
+  # windows-latest 自带 VS 2022 + Windows SDK, flutter build windows 即可.
+  # 输出在 build/windows/x64/runner/Release/ 下, 多个 .exe + .dll.
+  build-windows:
+    name: build windows (windows)
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+          flutter-version: '3.44.6'
+
+      - name: pub get
+        run: flutter pub get
+
+      - name: Build Windows (release)
+        # x64 是 github-hosted runner 默认架构
+        run: flutter build windows --release
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-app
+          path: build/windows/x64/runner/Release/**
+          if-no-files-found: error
+          retention-days: 14
