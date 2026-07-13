@@ -454,6 +454,12 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
   Future<void> _handleAction(S3Object obj, FileAction action) async {
     switch (action) {
       case FileAction.delete:
+        // 单个删除也走二次确认. folder 递归删尤其危险, 右键误点就可能
+        // 把整棵子树干掉. 显示具体名字比 "1 个对象" 更让用户有 context.
+        final hint = obj.isFolder
+            ? '将删除文件夹 "${obj.name}" (含其下所有内容), 此操作不可撤销.'
+            : '将删除文件 "${obj.name}", 此操作不可撤销.';
+        if (!await _confirmDelete(hint)) return;
         await _deleteKeys([obj.key]);
         break;
       case FileAction.rename:
@@ -486,6 +492,15 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
     final hint = folderCount == 0
         ? '将删除 $fileCount 个文件, 此操作不可撤销.'
         : '将删除 $fileCount 个文件 + $folderCount 个文件夹 (含其下所有内容), 此操作不可撤销.';
+    if (!await _confirmDelete(hint)) return;
+    await _deleteKeys(sel.toList());
+  }
+
+  /// 二次确认弹窗. 抽出成 helper 复用, 保证:
+  /// 1. 单个删除 (右键菜单 → 删除) 跟批量删除 (BatchActionBar) 走同一套 UI
+  /// 2. 加了递归删之后, 任何 delete 路径都先弹窗, 防止误点右键 → 文件夹整个子树没了
+  /// 3. 删除按钮用 error 红色, 跟 cancel 视觉上拉开差距
+  Future<bool> _confirmDelete(String hint) async {
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
@@ -504,8 +519,7 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
         ],
       ),
     );
-    if (ok != true) return;
-    await _deleteKeys(sel.toList());
+    return ok == true;
   }
 
   Future<void> _deleteKeys(List<String> keys) async {
