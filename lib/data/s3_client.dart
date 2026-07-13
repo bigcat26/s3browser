@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:xml/xml.dart' as xml;
 import 'package:path/path.dart' as p;
@@ -441,6 +442,7 @@ class S3Client {
       }
     });
     final body = builder.buildDocument().toString();
+    final bodyBytes = utf8.encode(body);
     final host = _host(bucket: bucket);
     final path = _pathPrefix(bucket: bucket, key: key);
     final url = '${config.normalizedEndpoint}$path';
@@ -450,10 +452,13 @@ class S3Client {
       host: host,
       path: path,
       query: {'uploadId': uploadId},
-      body: utf8.encode(body),
+      body: bodyBytes,
       extraHeaders: {
         'content-type': 'application/xml',
-        'content-length': '${utf8.encode(body).length}',
+        'content-length': '${bodyBytes.length}',
+        // AWS spec 不强制但推荐, 一些严格 S3 实现 (RustFS / Cloudflare R2 边缘节点)
+        // 会拒. 加上没坏处.
+        'content-md5': contentMd5Base64(bodyBytes),
       },
     );
   }
@@ -477,6 +482,7 @@ class S3Client {
       }
     });
     final body = builder.buildDocument().toString();
+    final bodyBytes = utf8.encode(body);
     final host = _host(bucket: bucket);
     final path = _pathPrefix(bucket: bucket);
     final url = '${config.normalizedEndpoint}$path';
@@ -486,10 +492,13 @@ class S3Client {
       host: host,
       path: path,
       query: {'delete': ''},
-      body: utf8.encode(body),
+      body: bodyBytes,
       extraHeaders: {
         'content-type': 'application/xml',
-        'content-length': '${utf8.encode(body).length}',
+        'content-length': '${bodyBytes.length}',
+        // AWS S3 多对象删除强制要求, 不带就 400 "Missing ContentMD5".
+        // 一些老的 S3 兼容实现 (旧 MinIO) 不强制, 加上没坏处, 一并覆盖.
+        'content-md5': contentMd5Base64(bodyBytes),
       },
     );
     // 解析返回的 <Error> 计数
@@ -599,6 +608,14 @@ class S3Client {
 xml.XmlDocument parseS3Xml(String body) {
   checkS3ErrorBody(body);
   return xml.XmlDocument.parse(body);
+}
+
+/// S3 [POST ?delete] (多对象批量删除) 强制要求 [Content-MD5] 头,
+/// 服务端用这个 MD5 校验 body 在传输中没被改. AWS S3 文档明确要求,
+/// RustFS / 严格实现的 MinIO 也会拒. 没设就 400 "Missing ContentMD5".
+/// 返回 base64 编码 (e.g. "1B2M2Y8AsgTpgAmY7PhCfg==").
+String contentMd5Base64(List<int> bytes) {
+  return base64.encode(md5.convert(bytes).bytes);
 }
 
 /// 嗅探 S3 错误响应 body. 命中 `&lt;Error&gt;` 根节点时抛 [S3Error],
