@@ -507,6 +507,80 @@ class S3Client {
     return keys.length - errors;
   }
 
+  /// 递归删除某 prefix 下的所有对象 (含 prefix 自身的 marker).
+  ///
+  /// S3 没真 "目录", list 时看到的 "folder" (CommonPrefixes) 是按 delimiter='/'
+  /// 算出的 virtual grouping. 删 "文件夹" 实际是 list + delete 它所有的 key.
+  ///
+  /// 之前用 [deleteObjects] 直接删 `yolo-hands/`, 只删了那个 0 字节 marker,
+  /// `yolo-hands/file1.txt` / `yolo-hands/sub/inner.txt` 实际都还在,
+  /// refresh 看起来 "没删干净".
+  ///
+  /// - 列 prefix 下所有 key (无 delimiter, 任意深度), 跨页继续
+  /// - 每批 1000 调用 [deleteObjects] (S3 限制)
+  /// - prefix 自身 (e.g. `yolo-hands/`) 也作为 0 字节 marker 一并删
+  /// 返回实际删除的对象总数 (含 marker, 不含失败).
+  ///
+  /// [prefix] 可带可不带尾 '/', 内部规整.
+  Future<int> deletePrefix({
+    required String bucket,
+    required String prefix,
+  }) async {
+    // 规整 prefix, folder key 总是以 / 结尾 (CommonPrefixes 永远这样).
+    // 不强求, 容忍 'yolo-hands' 这种简写
+    final normalized = prefix.endsWith('/') ? prefix : '$prefix/';
+    if (normalized == '/') {
+      throw ArgumentError('prefix 不能是 "/" (会删整个 bucket)');
+    }
+    int total = 0;
+    String? continuationToken;
+
+    do {
+      // 列一批 (最多 1000, 跟后续 delete batch 对齐,
+      // 一次 list 一次 delete 配对, 内存占用低, 容易加 progress)
+      final query = <String, String>{
+        'list-type': '2',
+        'prefix': normalized,
+        // max-keys 不带也行, 1000 是 S3 默认. 显式带防止某些实现给少.
+        'max-keys': '1000',
+        // 关键: 不带 delimiter, 否则只拿 prefix 下一层, 漏深层.
+        // ignore: use_null_aware_elements
+        if (continuationToken != null) 'continuation-token': continuationToken,
+      };
+      final host = _host(bucket: bucket);
+      final path = _pathPrefix(bucket: bucket);
+      final url = '${config.normalizedEndpoint}$path';
+      final resp = await _signedRequest(
+        method: 'GET',
+        url: url,
+        host: host,
+        path: path,
+        query: query,
+      );
+      final doc = parseS3Xml(resp.data as String);
+      final keys = doc.findAllElements('Contents')
+          .map((c) => c.getElement('Key')?.innerText ?? '')
+          .where((k) => k.isNotEmpty)
+          .toList();
+
+      if (keys.isEmpty) break;
+
+      // 删这一批
+      final deleted = await deleteObjects(bucket: bucket, keys: keys);
+      total += deleted;
+
+      final truncated = doc.getElement('ListBucketResult')
+              ?.getElement('IsTruncated')?.innerText ==
+          'true';
+      continuationToken = truncated
+          ? doc.getElement('ListBucketResult')
+              ?.getElement('NextContinuationToken')?.innerText
+          : null;
+    } while (continuationToken != null);
+
+    return total;
+  }
+
   /// 复制对象 (移动 = copy + delete 源)
   Future<void> copyObject({
     required String srcBucket,

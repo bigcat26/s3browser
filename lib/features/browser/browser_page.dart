@@ -477,11 +477,20 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
   Future<void> _deleteSelected() async {
     final sel = ref.read(selectionProvider);
     if (sel.isEmpty) return;
+    // 区分 folder vs file 给用户更准确的提示.
+    // folder 会递归删 (里面所有子文件 + 子 folder 都删), 数量远超 selection 大小.
+    final objects = ref.read(objectListProvider).value ?? const <S3Object>[];
+    final byKey = {for (final o in objects) o.key: o};
+    final folderCount = sel.where((k) => byKey[k]?.isFolder ?? false).length;
+    final fileCount = sel.length - folderCount;
+    final hint = folderCount == 0
+        ? '将删除 $fileCount 个文件, 此操作不可撤销.'
+        : '将删除 $fileCount 个文件 + $folderCount 个文件夹 (含其下所有内容), 此操作不可撤销.';
     final ok = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
         title: const Text('确认删除'),
-        content: Text('将删除 ${sel.length} 个对象, 此操作不可撤销.'),
+        content: Text(hint),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -503,13 +512,43 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
     final client = ref.read(s3ClientProvider);
     final bucket = ref.read(currentBucketProvider);
     if (client == null || bucket == null) return;
+    // 区分 folder vs file:
+    // - folder → 递归删 (list + delete 整 prefix 下所有 key + marker)
+    // - file → 走原来的批量删
+    // selection 只存 key, 不知道 isFolder, 从当前 objectList 查.
+    final objects = ref.read(objectListProvider).value ?? const <S3Object>[];
+    final byKey = {for (final o in objects) o.key: o};
+    final folderKeys = <String>[];
+    final fileKeys = <String>[];
+    for (final k in keys) {
+      if (byKey[k]?.isFolder ?? false) {
+        folderKeys.add(k);
+      } else {
+        fileKeys.add(k);
+      }
+    }
     try {
-      final deleted = await client.deleteObjects(bucket: bucket, keys: keys);
+      int total = 0;
+      // folder 一个一个删 (每个内部 list+delete 跨页, 慢但稳, 大 folder 给点耐心)
+      for (final p in folderKeys) {
+        total += await client.deletePrefix(bucket: bucket, prefix: p);
+      }
+      if (fileKeys.isNotEmpty) {
+        // fileKeys 上限 1000 (S3 限制), 多选超出要 chunk. 先简化: 1000 内一次删.
+        // 大批量多选场景暂时少见, 真碰到了再分批.
+        if (fileKeys.length > 1000) {
+          for (final batch in _chunked(fileKeys, 1000)) {
+            total += await client.deleteObjects(bucket: bucket, keys: batch);
+          }
+        } else {
+          total += await client.deleteObjects(bucket: bucket, keys: fileKeys);
+        }
+      }
       ref.read(selectionProvider.notifier).clear();
       ref.read(objectListProvider.notifier).refresh();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已删除 $deleted 个对象')),
+          SnackBar(content: Text('已删除 $total 个对象')),
         );
       }
     } catch (e) {
@@ -519,6 +558,16 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
         );
       }
     }
+  }
+
+  /// 把 list 切成 size 大小的 batch, 给 [S3Client.deleteObjects] 用
+  /// (S3 限制单次 1000 keys).
+  List<List<T>> _chunked<T>(List<T> list, int size) {
+    final out = <List<T>>[];
+    for (var i = 0; i < list.length; i += size) {
+      out.add(list.sublist(i, (i + size).clamp(0, list.length)));
+    }
+    return out;
   }
 
   Future<void> _moveSelected() async {
