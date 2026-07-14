@@ -83,9 +83,19 @@ FriendlyError explainError(Object error, {String? context}) {
   }
 
   // ---- S3 服务端错 (S3Error, 我们自己 sniff 出来的) ----
-  // format: "S3 <Code>: <Message>"
+  // format: "S3 <Code>: <Message>" 或 "S3 HTTP<status>: <Message>" (download 等
+  // 走 status code 兜底抛的)
   if (raw.startsWith('S3 ') && raw.contains(':')) {
     final code = raw.substring(3, raw.indexOf(':')).trim();
+    // HTTP<status> 形态 (S3Error 来自 _signedRequest status >= 400 兜底)
+    if (code.startsWith('HTTP')) {
+      final status = int.tryParse(code.substring(4)) ?? 0;
+      return FriendlyError(
+        message: '服务端 $code',
+        hint: _httpStatusHint(status),
+        raw: raw,
+      );
+    }
     return FriendlyError(
       message: '服务端拒绝: $code',
       hint: _s3CodeHint(code),
@@ -109,6 +119,41 @@ FriendlyError explainError(Object error, {String? context}) {
     hint: '原始错误在下方, 可截图给开发者看.',
     raw: raw,
   );
+}
+
+/// HTTP 状态码 → 中文提示. 覆盖 S3 / generic HTTP server 常见 4xx/5xx.
+String _httpStatusHint(int status) {
+  switch (status) {
+    case 400:
+      return '请求格式错, 通常是 key 含服务端不接受的字符, 或分块参数不对.';
+    case 401:
+      return '未认证, 凭证缺失或过期.';
+    case 403:
+      return '服务端拒绝访问. IAM 策略 / bucket policy 拒绝该操作, 或凭证无此权限. '
+          '某些 S3 兼容实现在无权限时返回 404 而不是 403 (隐藏对象存在性).';
+    case 404:
+      return '对象 / bucket 不存在. 可能文件已被删除 / 移走 / 名字拼错, 或者 '
+          '当前 list 是缓存 (强制刷新再试).';
+    case 405:
+      return '服务端不允许该方法, bucket policy 限制. 换 endpoint 试试.';
+    case 409:
+      return '冲突, 比如分块上传时 part 已存在或 bucket 已存在同名对象.';
+    case 412:
+      return '前置条件失败 (If-Match / If-None-Match 等).';
+    case 416:
+      return 'Range 越界, 分块下载时 part 号超限.';
+    case 429:
+      return '请求过频被限流, 降低频率重试.';
+    case 500:
+    case 502:
+    case 503:
+    case 504:
+      return '服务端内部错误, 重试一次. 持续失败说明服务端真挂了.';
+    default:
+      if (status >= 500) return '服务端错误, 重试或联系运维.';
+      if (status >= 400) return '请求被拒绝, 检查 key / 权限 / 服务端配置.';
+      return '意外的 HTTP 状态.';
+  }
 }
 
 /// S3 错误码 → 中文提示. 没收录的给通用 "检查权限 / bucket 是否存在".

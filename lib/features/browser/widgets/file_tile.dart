@@ -316,6 +316,28 @@ class _FileTileState extends ConsumerState<FileTile> {
         PopupMenuItem(value: FileAction.move, child: Text('移动')),
         PopupMenuItem(value: FileAction.download, child: Text('下载')),
         PopupMenuItem(value: FileAction.delete, child: Text('删除')),
+        PopupMenuDivider(),
+        // 复制操作放最后, 用 divider 跟 destructive 操作分开
+        PopupMenuItem(
+          value: FileAction.copyName,
+          child: Row(
+            children: [
+              Icon(Icons.copy_outlined, size: 16),
+              SizedBox(width: 10),
+              Text('复制文件名'),
+            ],
+          ),
+        ),
+        PopupMenuItem(
+          value: FileAction.copyPath,
+          child: Row(
+            children: [
+              Icon(Icons.link, size: 16),
+              SizedBox(width: 10),
+              Text('复制完整路径'),
+            ],
+          ),
+        ),
       ],
     );
     if (picked != null) widget.onAction(picked);

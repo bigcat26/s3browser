@@ -478,6 +478,43 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
         // 菜单里没有这个 action 了, 保留 case 是为了 enum 兼容
         ref.read(selectionProvider.notifier).toggle(obj.key);
         break;
+      case FileAction.copyName:
+        await _copyToClipboard(
+          obj.name,
+          label: '文件名',
+        );
+        break;
+      case FileAction.copyPath:
+        // 完整路径 = bucket + key (跟 _CopyPathButton 一致)
+        final bucket = ref.read(currentBucketProvider) ?? '';
+        final path = bucket.isEmpty
+            ? obj.key
+            : (obj.key.startsWith('$bucket/') ? obj.key : '$bucket/${obj.key}');
+        await _copyToClipboard(path, label: '完整路径');
+        break;
+    }
+  }
+
+  /// 复制到剪贴板 + snackbar 反馈. 提出来共用, FileAction.copyName / copyPath
+  /// 都调它. 失败也提示, 不静默吞.
+  Future<void> _copyToClipboard(String text, {required String label}) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await Clipboard.setData(ClipboardData(text: text));
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('已复制 $label: $text'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('复制 $label 失败: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 
@@ -676,9 +713,37 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
         );
       }
     } catch (e) {
+      // 用 FriendlyError 翻译 dio / S3 错, 别直接 "下载失败: <DioException 堆栈>"
+      // 糊用户一脸. raw 留底, 高级用户 / 报 bug 时可以看.
       if (mounted) {
+        final friendly = explainError(e, context: '下载失败');
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('下载失败: $e')),
+          SnackBar(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  friendly.message,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  friendly.hint,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onInverseSurface
+                        .withValues(alpha: 0.8),
+                  ),
+                ),
+              ],
+            ),
+            duration: const Duration(seconds: 5),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
         );
       }
     }
@@ -1624,7 +1689,15 @@ class _ErrorState extends StatelessWidget {
   }
 }
 
-enum FileAction { select, delete, rename, move, download }
+enum FileAction {
+  select,
+  delete,
+  rename,
+  move,
+  download,
+  copyName,
+  copyPath,
+}
 
 /// 内容垂直居中, 但内容比可用高度高时, 自动垂直滚动.
 /// 解决窄高窗口下空态/错误态的 bottom overflow.

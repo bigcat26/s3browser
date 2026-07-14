@@ -76,6 +76,34 @@ void main() {
     });
   });
 
+  group('explainError — S3Error HTTP<status> 形态', () {
+    test('S3 HTTP404 → 对象不存在', () {
+      // _signedRequest status >= 400 兜底抛的形态, 之前显示 "S3 HTTP404: No
+      // response body" 一脸懵. 现在分到 HTTP status hint 分支.
+      final r = explainError('S3 HTTP404: No response body');
+      expect(r.message, contains('HTTP404'));
+      expect(r.hint, contains('对象'));
+    });
+
+    test('S3 HTTP403 → 权限拒绝', () {
+      final r = explainError('S3 HTTP403: Access Denied');
+      expect(r.message, contains('HTTP403'));
+      expect(r.hint, anyOf(contains('权限'), contains('IAM')));
+    });
+
+    test('S3 HTTP500 → 服务端内部错误', () {
+      final r = explainError('S3 HTTP500: Internal Server Error');
+      expect(r.message, contains('HTTP500'));
+      expect(r.hint, contains('重试'));
+    });
+
+    test('S3 HTTP429 → 限流', () {
+      final r = explainError('S3 HTTP429: Slow Down');
+      expect(r.message, contains('HTTP429'));
+      expect(r.hint, contains('限流'));
+    });
+  });
+
   group('explainError — 兜底', () {
     test('完全不认识的 error → 用 context 作 message, raw 保留', () {
       final r = explainError(
