@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart' hide DropTarget;
 
+import '../../core/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/s3_object.dart';
 import '../../data/models/server.dart';
@@ -1412,6 +1413,7 @@ class _BucketListError extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final friendly = explainError(error, context: '加载 bucket 列表失败');
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -1422,17 +1424,31 @@ class _BucketListError extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // 主标题: 人话 (例: "DNS 解析失败, 找不到主机")
           Text(
-            '加载 bucket 列表失败',
+            friendly.message,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: AppTheme.error,
               fontWeight: FontWeight.w600,
             ),
           ),
           const SizedBox(height: 6),
+          // 副标题: 下一步动作建议
           Text(
-            error,
-            style: theme.textTheme.mono?.copyWith(fontSize: 11),
+            friendly.hint,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 10),
+          // 原始 error: 调试用, 折叠在 secondary text style
+          Text(
+            friendly.raw,
+            style: theme.textTheme.mono?.copyWith(
+              fontSize: 10,
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.5),
+            ),
           ),
           const SizedBox(height: 10),
           OutlinedButton.icon(

@@ -367,51 +367,44 @@ class _ServerFormPageState extends ConsumerState<ServerFormPage> {
                   ],
 
                   // ---- 操作按钮 ----
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 2,
-                        child: OutlinedButton.icon(
-                          onPressed: _testing ? null : _testConnection,
-                          icon: _testing
-                              ? SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: theme.colorScheme.primary,
-                                  ),
-                                )
-                              : const Icon(Icons.wifi_tethering, size: 16),
-                          label: const Text('测试连接'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 3,
-                        child: FilledButton.icon(
-                          onPressed: _saving ? null : _save,
-                          icon: _saving
-                              ? SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: scheme.onPrimary,
-                                  ),
-                                )
-                              : Icon(
-                                  _isEdit
-                                      ? Icons.check
-                                      : Icons.arrow_forward,
-                                  size: 16,
-                                ),
-                          label: Text(
-                            _isEdit ? '保存修改' : '保存并进入',
+                  // 之前 flex: 2 / flex: 3 同一行, 窄屏 (手机) 时 "测试连接" 4
+                  // 个字得换行. 改成上下两行, 各占满宽, 顺序: 测试在上 (辅助)
+                  // / 保存 (主操作) 在下 (靠近拇指).
+                  OutlinedButton.icon(
+                    onPressed: _testing ? null : _testConnection,
+                    icon: _testing
+                        ? SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: theme.colorScheme.primary,
+                            ),
+                          )
+                        : const Icon(Icons.wifi_tethering, size: 16),
+                    label: const Text('测试连接'),
+                  ),
+                  const SizedBox(height: 12),
+                  FilledButton.icon(
+                    onPressed: _saving ? null : _save,
+                    icon: _saving
+                        ? SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: scheme.onPrimary,
+                            ),
+                          )
+                        : Icon(
+                            _isEdit
+                                ? Icons.check
+                                : Icons.arrow_forward,
+                            size: 16,
                           ),
-                        ),
-                      ),
-                    ],
+                    label: Text(
+                      _isEdit ? '保存修改' : '保存并进入',
+                    ),
                   ),
                 ],
               ),
