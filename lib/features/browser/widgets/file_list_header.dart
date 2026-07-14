@@ -28,6 +28,7 @@ class FileListHeader extends ConsumerWidget {
     final partialSelected =
         !allSelected && allKeys.any((k) => selected.contains(k));
     final sel = ref.read(selectionProvider.notifier);
+    final showDate = objects.any((o) => !o.isFolder && o.lastModified != null);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -37,86 +38,95 @@ class FileListHeader extends ConsumerWidget {
           bottom: BorderSide(color: scheme.outline, width: 1),
         ),
       ),
-      child: Row(
-        children: [
-          // ---- 1: 全选 checkbox (3 态都点击: all → clear, partial/none → selectAll) ----
-          SizedBox(
-            width: 18,
-            child: InkWell(
-              onTap: allKeys.isEmpty
-                  ? null
-                  : () {
-                      if (allSelected) {
-                        sel.clear();
-                      } else {
-                        sel.selectAll(allKeys);
-                      }
-                    },
-              child: allSelected
-                  ? Icon(
-                      Icons.check_box,
-                      size: 16,
-                      color: scheme.primary,
-                    )
-                  : partialSelected
+      // LayoutBuilder 拿实际可用宽, 窄屏 (< 560) 砍掉 MODIFIED 列, 给 NAME 让路.
+      // 之前没这个判断, 手机 360px 宽 - 40px padding - 18(checkbox) - 12 - 16(icon)
+      // - 12 - 130(MODIFIED) - 16 - 72(SIZE) - 12 - 32(more) = 0px 给 NAME,
+      // 所有文件名被截没了.
+      child: LayoutBuilder(
+        builder: (ctx, c) {
+          final narrow = c.maxWidth < 560;
+          return Row(
+            children: [
+              // ---- 1: 全选 checkbox (3 态都点击: all → clear, partial/none → selectAll) ----
+              SizedBox(
+                width: 18,
+                child: InkWell(
+                  onTap: allKeys.isEmpty
+                      ? null
+                      : () {
+                          if (allSelected) {
+                            sel.clear();
+                          } else {
+                            sel.selectAll(allKeys);
+                          }
+                        },
+                  child: allSelected
                       ? Icon(
-                          Icons.indeterminate_check_box,
+                          Icons.check_box,
                           size: 16,
                           color: scheme.primary,
                         )
-                      : Icon(
-                          Icons.check_box_outline_blank,
-                          size: 16,
-                          color: allKeys.isEmpty
-                              ? scheme.onSurface.withValues(alpha: 0.2)
-                              : scheme.onSurface.withValues(alpha: 0.5),
-                        ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          // 图标列 (空, 跟 body 对齐)
-          const SizedBox(width: 16),
-          const SizedBox(width: 12),
-          // ---- 2: 名称 (排序) ----
-          Expanded(
-            child: _HeaderCell(
-              label: 'NAME',
-              sortBy: SortBy.name,
-              active: sortBy,
-              asc: sortAsc,
-              onTap: () => notifier.setSort(SortBy.name),
-            ),
-          ),
-          // ---- 3: 修改时间 (排序) ----
-          if (objects.any((o) => !o.isFolder && o.lastModified != null))
-            SizedBox(
-              width: 130,
-              child: _HeaderCell(
-                label: 'MODIFIED',
-                sortBy: SortBy.date,
-                active: sortBy,
-                asc: sortAsc,
-                onTap: () => notifier.setSort(SortBy.date),
-                align: TextAlign.end,
+                      : partialSelected
+                          ? Icon(
+                              Icons.indeterminate_check_box,
+                              size: 16,
+                              color: scheme.primary,
+                            )
+                          : Icon(
+                              Icons.check_box_outline_blank,
+                              size: 16,
+                              color: allKeys.isEmpty
+                                  ? scheme.onSurface.withValues(alpha: 0.2)
+                                  : scheme.onSurface.withValues(alpha: 0.5),
+                            ),
+                ),
               ),
-            ),
-          const SizedBox(width: 16),
-          // ---- 4: 大小 (排序) ----
-          SizedBox(
-            width: 72,
-            child: _HeaderCell(
-              label: 'SIZE',
-              sortBy: SortBy.size,
-              active: sortBy,
-              asc: sortAsc,
-              onTap: () => notifier.setSort(SortBy.size),
-              align: TextAlign.end,
-            ),
-          ),
-          const SizedBox(width: 12),
-          // ---- 5: 操作列 (空头) ----
-          const SizedBox(width: 32),
-        ],
+              const SizedBox(width: 12),
+              // 图标列 (空, 跟 body 对齐)
+              const SizedBox(width: 16),
+              const SizedBox(width: 12),
+              // ---- 2: 名称 (排序) ----
+              Expanded(
+                child: _HeaderCell(
+                  label: 'NAME',
+                  sortBy: SortBy.name,
+                  active: sortBy,
+                  asc: sortAsc,
+                  onTap: () => notifier.setSort(SortBy.name),
+                ),
+              ),
+              // ---- 3: 修改时间 (排序, 窄屏隐藏) ----
+              if (!narrow && showDate)
+                SizedBox(
+                  width: 130,
+                  child: _HeaderCell(
+                    label: 'MODIFIED',
+                    sortBy: SortBy.date,
+                    active: sortBy,
+                    asc: sortAsc,
+                    onTap: () => notifier.setSort(SortBy.date),
+                    align: TextAlign.end,
+                  ),
+                ),
+              const SizedBox(width: 16),
+              // ---- 4: 大小 (排序) ----
+              SizedBox(
+                width: narrow ? 60 : 72,
+                child: _HeaderCell(
+                  label: 'SIZE',
+                  sortBy: SortBy.size,
+                  active: sortBy,
+                  asc: sortAsc,
+                  onTap: () => notifier.setSort(SortBy.size),
+                  align: TextAlign.end,
+                ),
+              ),
+              const SizedBox(width: 12),
+              // ---- 5: 操作列 (空头) ----
+              const SizedBox(width: 32),
+            ],
+          );
+        },
       ),
     );
   }

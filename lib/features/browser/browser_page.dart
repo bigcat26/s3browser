@@ -1120,21 +1120,28 @@ class _BucketCrumbState extends State<_BucketCrumb> {
           mainAxisSize: MainAxisSize.min,
           children: [
             // Icon: 独立点击区域 = 换 bucket
+            // 之前 13px 跟列表里 16px folder icon 不对齐, 看起来像 packages
+            // 名字的附属 icon. 提到 16px 跟列表一致, hit area +4 留点击空间.
             Tooltip(
               message: '切换 bucket',
               child: GestureDetector(
                 onTap: widget.onIconTap,
-                // 加大 hit area 一点, icon 13px 直接点有点小
                 child: Padding(
-                  padding: const EdgeInsets.all(3),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
                   child: Icon(
                     Icons.folder_outlined,
-                    size: 13,
+                    size: 16,
                     color: scheme.primary,
                   ),
                 ),
               ),
             ),
+            // Icon 和 label 之间加大间距, 让 icon 视觉上独立, 不像附属品.
+            // 之前 0px (Row 默认 gap 太小, 几乎贴在一起)
+            const SizedBox(width: 8),
             // Label: 独立点击区域 = 回到根
             Tooltip(
               message: '回到 bucket 根目录',

@@ -89,104 +89,123 @@ class _FileTileState extends ConsumerState<FileTile> {
             ),
             padding: const EdgeInsets.symmetric(
                 horizontal: 20, vertical: 10),
-            child: Row(
-              children: [
-                // ---- 1: 选择 checkbox (永远显示) ----
-                SizedBox(
-                  width: 18,
-                  child: InkWell(
-                    onTap: () => ref
-                        .read(selectionProvider.notifier)
-                        .toggle(obj.key),
-                    borderRadius: BorderRadius.circular(2),
-                    child: Padding(
-                      padding: const EdgeInsets.all(1),
-                      child: Icon(
-                        selected
-                            ? Icons.check_box
-                            : Icons.check_box_outline_blank,
-                        size: 16,
-                        color: selected
-                            ? scheme.primary
-                            : theme.colorScheme.onSurface
-                                .withValues(alpha: 0.4),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // ---- 2: 图标 ----
-                Icon(icon, size: 16, color: _iconColor(context, obj, selected)),
-                const SizedBox(width: 12),
-                // ---- 3: 文件名 (无下划线了, 整行都可点, 行为由选择态决定) ----
-                Expanded(
-                  child: Text(
-                    obj.name,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: obj.isFolder
-                          ? FontWeight.w500
-                          : FontWeight.w400,
-                    ),
-                  ),
-                ),
-                // ---- 4: 修改时间 ----
-                if (!obj.isFolder && obj.lastModified != null) ...[
-                  SizedBox(
-                    width: 130,
-                    child: Text(
-                      _formatDate(obj.lastModified!),
-                      style: theme.textTheme.mono?.copyWith(
-                        color: theme.colorScheme.onSurface
-                            .withValues(alpha: 0.5),
-                        fontSize: 11,
-                      ),
-                      textAlign: TextAlign.end,
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                ],
-                // ---- 5: 大小 (等宽右对齐) ----
-                SizedBox(
-                  width: 72,
-                  child: Text(
-                    obj.isFolder ? '—' : obj.sizeHuman,
-                    style: theme.textTheme.mono?.copyWith(
-                      color: obj.isFolder
-                          ? theme.colorScheme.onSurface
-                              .withValues(alpha: 0.3)
-                          : theme.colorScheme.onSurface
-                              .withValues(alpha: 0.7),
-                    ),
-                    textAlign: TextAlign.end,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // ---- 6: 操作 ----
-                SizedBox(
-                  width: 32,
-                  child: AnimatedOpacity(
-                    duration: const Duration(milliseconds: 120),
-                    opacity: _hover ? 1.0 : 0.0,
-                    // 用 InkWell + Icon 不用 IconButton, 避免 IconButton 默认
-                    // 8px padding + tap target size 把行高撑到 28+5=33,
-                    // 跟其他元素 (icon 16, text ~20) 差 13px, 行内出现 5-12px bottom overflow
-                    child: InkWell(
-                      onTap: () => _showContextMenu(context),
-                      borderRadius: BorderRadius.circular(4),
-                      child: Tooltip(
-                        message: '操作',
-                        child: Container(
-                          width: 32,
-                          height: 32,
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.more_horiz, size: 18),
+            // LayoutBuilder 拿实际可用宽, 窄屏 (< 560) 砍掉 MODIFIED 列,
+            // 把空间让给 NAME. 之前 5 列固定宽, 手机 360 - 40 padding - 18 - 12
+            // - 16 - 12 - 130 - 16 - 72 - 12 - 32 = 0, NAME 被截.
+            child: LayoutBuilder(
+              builder: (ctx, c) {
+                final narrow = c.maxWidth < 560;
+                return Row(
+                  children: [
+                    // ---- 1: 选择 checkbox (永远显示) ----
+                    SizedBox(
+                      width: 18,
+                      child: InkWell(
+                        onTap: () => ref
+                            .read(selectionProvider.notifier)
+                            .toggle(obj.key),
+                        borderRadius: BorderRadius.circular(2),
+                        child: Padding(
+                          padding: const EdgeInsets.all(1),
+                          child: Icon(
+                            selected
+                                ? Icons.check_box
+                                : Icons.check_box_outline_blank,
+                            size: 16,
+                            color: selected
+                                ? scheme.primary
+                                : theme.colorScheme.onSurface
+                                    .withValues(alpha: 0.4),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                ),
-              ],
+                    const SizedBox(width: 12),
+                    // ---- 2: 图标 ----
+                    Icon(icon, size: 16, color: _iconColor(context, obj, selected)),
+                    const SizedBox(width: 12),
+                    // ---- 3: 文件名 (横向 scroll, 长名字能左右划看全) ----
+                    // 用 SingleChildScrollView(horizontal) 套 Text, 自然宽
+                    // 渲染; 容器宽 < 自然宽时, 横向拖动看尾部. 不影响 tap
+                    // (SingleChildScrollView 不吃 tap, 只吃 drag) 也不吃
+                    // 竖向滚动 (垂直 drag 透传给外层 ListView).
+                    Expanded(
+                      child: SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        // drag 结束后不会"反弹"回起点, 保持拖到的位置
+                        physics: const ClampingScrollPhysics(),
+                        // 不要这个, 默认就吃 tap, 单击穿透不到行 InkWell
+                        child: Text(
+                          obj.name,
+                          // 不带 ellipsis: scroll 没滚到底时尾部看不到, 但
+                          // 用户能划, 不强制截断
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: obj.isFolder
+                                ? FontWeight.w500
+                                : FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                    ),
+                    // ---- 4: 修改时间 (窄屏隐藏) ----
+                    if (!narrow && !obj.isFolder && obj.lastModified != null) ...[
+                      SizedBox(
+                        width: 130,
+                        child: Text(
+                          _formatDate(obj.lastModified!),
+                          style: theme.textTheme.mono?.copyWith(
+                            color: theme.colorScheme.onSurface
+                                .withValues(alpha: 0.5),
+                            fontSize: 11,
+                          ),
+                          textAlign: TextAlign.end,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                    ],
+                    // ---- 5: 大小 (等宽右对齐) ----
+                    SizedBox(
+                      width: narrow ? 60 : 72,
+                      child: Text(
+                        obj.isFolder ? '—' : obj.sizeHuman,
+                        style: theme.textTheme.mono?.copyWith(
+                          color: obj.isFolder
+                              ? theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.3)
+                              : theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.7),
+                        ),
+                        textAlign: TextAlign.end,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    // ---- 6: 操作 ----
+                    SizedBox(
+                      width: 32,
+                      child: AnimatedOpacity(
+                        duration: const Duration(milliseconds: 120),
+                        opacity: _hover ? 1.0 : 0.0,
+                        // 用 InkWell + Icon 不用 IconButton, 避免 IconButton 默认
+                        // 8px padding + tap target size 把行高撑到 28+5=33,
+                        // 跟其他元素 (icon 16, text ~20) 差 13px, 行内出现 5-12px bottom overflow
+                        child: InkWell(
+                          onTap: () => _showContextMenu(context),
+                          borderRadius: BorderRadius.circular(4),
+                          child: Tooltip(
+                            message: '操作',
+                            child: Container(
+                              width: 32,
+                              height: 32,
+                              alignment: Alignment.center,
+                              child: const Icon(Icons.more_horiz, size: 18),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
         ),
