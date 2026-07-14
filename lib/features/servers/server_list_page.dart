@@ -124,10 +124,17 @@ class ServerListPage extends ConsumerWidget {
           );
         },
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openForm(context),
-        icon: const Icon(Icons.add, size: 18),
-        label: const Text('添加服务器'),
+      // FAB 只在有 server 时显示. 空态自带 "添加第一个服务器" 大按钮,
+      // 再叠 FAB 重复, 视觉噪声. 有 server 时 FAB 作为 "+ 再加一个" 入口.
+      floatingActionButton: serversAsync.maybeWhen(
+        data: (servers) => servers.isEmpty
+            ? null
+            : FloatingActionButton.extended(
+                onPressed: () => _openForm(context),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('添加服务器'),
+              ),
+        orElse: () => null,
       ),
     );
   }
