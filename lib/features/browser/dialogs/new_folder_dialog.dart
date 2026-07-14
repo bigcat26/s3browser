@@ -29,11 +29,25 @@ class NewFolderDialog extends ConsumerStatefulWidget {
 class _NewFolderDialogState extends ConsumerState<NewFolderDialog> {
   final _ctrl = TextEditingController();
   final _form = GlobalKey<FormState>();
+  // 显式 FocusNode: autofocus: true 在 release AOT 模式 + 部分 Android
+  // 版本上不可靠 (键盘不弹). 走 postFrameCallback + requestFocus 强制
+  // 唤起 IME, 三个 dialog 统一这套.
+  final _focus = FocusNode();
   bool _busy = false;
   String? _err;
 
   @override
+  void initState() {
+    super.initState();
+    // 等 dialog 渲染完下一帧再 requestFocus, 跳过 autofocus 不可靠问题
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  @override
   void dispose() {
+    _focus.dispose();
     _ctrl.dispose();
     super.dispose();
   }
@@ -100,7 +114,7 @@ class _NewFolderDialogState extends ConsumerState<NewFolderDialog> {
             const SizedBox(height: 12),
             TextFormField(
               controller: _ctrl,
-              autofocus: true,
+              focusNode: _focus,
               enabled: !_busy,
               decoration: const InputDecoration(
                 labelText: '文件夹名',

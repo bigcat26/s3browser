@@ -5,10 +5,54 @@ import 'package:flutter/material.dart';
 /// - [currentPrefix] 仅作默认占位
 /// - 返回值自动补齐 trailing '/', 取消返回 null
 Future<String?> showMoveDialog(BuildContext context, String currentPrefix) {
-  final controller = TextEditingController(text: currentPrefix);
   return showDialog<String>(
     context: context,
-    builder: (_) => AlertDialog(
+    builder: (_) => _MoveDialog(currentPrefix: currentPrefix),
+  );
+}
+
+/// 显式 FocusNode + addPostFrameCallback 强制唤起 IME, 跟另外两个
+/// dialog 一致. 见 rename_dialog.dart 注释.
+class _MoveDialog extends StatefulWidget {
+  final String currentPrefix;
+  const _MoveDialog({required this.currentPrefix});
+
+  @override
+  State<_MoveDialog> createState() => _MoveDialogState();
+}
+
+class _MoveDialogState extends State<_MoveDialog> {
+  late final TextEditingController _ctrl;
+  final _focus = FocusNode();
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(text: widget.currentPrefix);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  @override
+  void dispose() {
+    _focus.dispose();
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  String _normalize(String v) {
+    final t = v.trim();
+    return t.isEmpty ? t : (t.endsWith('/') ? t : '$t/');
+  }
+
+  void _submit() {
+    Navigator.pop(context, _normalize(_ctrl.text));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
       title: const Text('移动到'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -17,19 +61,13 @@ Future<String?> showMoveDialog(BuildContext context, String currentPrefix) {
           const Text('目标路径 (相对 bucket 根, 结尾加 /)'),
           const SizedBox(height: 8),
           TextField(
-            controller: controller,
-            autofocus: true,
+            controller: _ctrl,
+            focusNode: _focus,
             decoration: const InputDecoration(
               hintText: 'photos/2024/',
               border: OutlineInputBorder(),
             ),
-            onSubmitted: (v) {
-              final t = v.trim();
-              Navigator.pop(
-                context,
-                t.isEmpty ? t : (t.endsWith('/') ? t : '$t/'),
-              );
-            },
+            onSubmitted: (_) => _submit(),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -45,16 +83,10 @@ Future<String?> showMoveDialog(BuildContext context, String currentPrefix) {
           child: const Text('取消'),
         ),
         FilledButton(
-          onPressed: () {
-            final v = controller.text.trim();
-            Navigator.pop(
-              context,
-              v.isEmpty ? v : (v.endsWith('/') ? v : '$v/'),
-            );
-          },
+          onPressed: _submit,
           child: const Text('移动'),
         ),
       ],
-    ),
-  );
+    );
+  }
 }
