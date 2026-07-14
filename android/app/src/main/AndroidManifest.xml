@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 网络访问: 跟所有 S3 服务端通信都靠它.
+         debug / profile manifest 已经声明 INTERNET (Flutter tool hot reload 用),
+         release manifest 之前漏了, 用户装 release APK 完全没有网络, 任何
+         HTTP/S3 调用都失败 (dio 报 "Failed host lookup" 但其实是 OS 层没权限
+         导致的解析失败). -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 检查网络连接状态 (e.g. WiFi/移动数据切换提示). 后续可以加
+         connectivity_banner 用, 先声明不写逻辑也不亏. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <application
         android:label="s3browser"
         android:name="${applicationName}"
