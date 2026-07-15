@@ -28,7 +28,6 @@ class FileListHeader extends ConsumerWidget {
     final partialSelected =
         !allSelected && allKeys.any((k) => selected.contains(k));
     final sel = ref.read(selectionProvider.notifier);
-    final showDate = objects.any((o) => !o.isFolder && o.lastModified != null);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
@@ -38,13 +37,18 @@ class FileListHeader extends ConsumerWidget {
           bottom: BorderSide(color: scheme.outline, width: 1),
         ),
       ),
-      // LayoutBuilder 拿实际可用宽, 窄屏 (< 560) 砍掉 MODIFIED 列, 给 NAME 让路.
-      // 之前没这个判断, 手机 360px 宽 - 40px padding - 18(checkbox) - 12 - 16(icon)
-      // - 12 - 130(MODIFIED) - 16 - 72(SIZE) - 12 - 32(more) = 0px 给 NAME,
-      // 所有文件名被截没了.
+      // LayoutBuilder 拿实际可用宽, 窄屏 (< 560) 把 MODIFIED 列从 130px 砍到
+      // 60px + 格式从 "YYYY-MM-DD" 变 "MM-DD", 仍然显示但占空间小.
+      // 之前一刀切窄屏直接砍掉整列, 用户手机上看不到修改时间 (反馈 "缺少了
+      // 修改时间列"). 改成 3 档:
+      //   wide (>= 560): 130px "YYYY-MM-DD"
+      //   narrow (< 560): 60px "MM-DD"
+      // 文件名 (NAME) 在 wide 仍吃剩余空间, 在 narrow 也吃剩余空间, 但
+      // 60px + 60px (DATE/SIZE) 留给 NAME 的空间已经够短文件名显示.
       child: LayoutBuilder(
         builder: (ctx, c) {
           final narrow = c.maxWidth < 560;
+          final dateWidth = narrow ? 60.0 : 130.0;
           return Row(
             children: [
               // ---- 1: 全选 checkbox (3 态都点击: all → clear, partial/none → selectAll) ----
@@ -95,19 +99,18 @@ class FileListHeader extends ConsumerWidget {
                   onTap: () => notifier.setSort(SortBy.name),
                 ),
               ),
-              // ---- 3: 修改时间 (排序, 窄屏隐藏) ----
-              if (!narrow && showDate)
-                SizedBox(
-                  width: 130,
-                  child: _HeaderCell(
-                    label: 'MODIFIED',
-                    sortBy: SortBy.date,
-                    active: sortBy,
-                    asc: sortAsc,
-                    onTap: () => notifier.setSort(SortBy.date),
-                    align: TextAlign.end,
-                  ),
+              // ---- 3: 修改时间 (排序, 永远显示, 窄屏压缩) ----
+              SizedBox(
+                width: dateWidth,
+                child: _HeaderCell(
+                  label: 'MODIFIED',
+                  sortBy: SortBy.date,
+                  active: sortBy,
+                  asc: sortAsc,
+                  onTap: () => notifier.setSort(SortBy.date),
+                  align: TextAlign.end,
                 ),
+              ),
               const SizedBox(width: 16),
               // ---- 4: 大小 (排序) ----
               SizedBox(

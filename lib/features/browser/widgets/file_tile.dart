@@ -89,12 +89,15 @@ class _FileTileState extends ConsumerState<FileTile> {
             ),
             padding: const EdgeInsets.symmetric(
                 horizontal: 20, vertical: 10),
-            // LayoutBuilder 拿实际可用宽, 窄屏 (< 560) 砍掉 MODIFIED 列,
-            // 把空间让给 NAME. 之前 5 列固定宽, 手机 360 - 40 padding - 18 - 12
-            // - 16 - 12 - 130 - 16 - 72 - 12 - 32 = 0, NAME 被截.
+            // LayoutBuilder 拿实际可用宽, 窄屏 (< 560) 把 MODIFIED 列从 130px
+            // 砍到 60px + 格式从 "YYYY-MM-DD" 变 "MM-DD", 仍然显示. 之前
+            // 窄屏直接砍掉整列, 用户手机上看不到修改时间 (反馈 "缺少了修改
+            // 时间列"). 文件夹 / lastModified 为空 → 显示 "—" 占位, 列对齐
+            // 不抖.
             child: LayoutBuilder(
               builder: (ctx, c) {
                 final narrow = c.maxWidth < 560;
+                final dateWidth = narrow ? 60.0 : 130.0;
                 return Row(
                   children: [
                     // ---- 1: 选择 checkbox (永远显示) ----
@@ -147,22 +150,23 @@ class _FileTileState extends ConsumerState<FileTile> {
                         ),
                       ),
                     ),
-                    // ---- 4: 修改时间 (窄屏隐藏) ----
-                    if (!narrow && !obj.isFolder && obj.lastModified != null) ...[
-                      SizedBox(
-                        width: 130,
-                        child: Text(
-                          _formatDate(obj.lastModified!),
-                          style: theme.textTheme.mono?.copyWith(
-                            color: theme.colorScheme.onSurface
-                                .withValues(alpha: 0.5),
-                            fontSize: 11,
-                          ),
-                          textAlign: TextAlign.end,
+                    // ---- 4: 修改时间 (永远显示, 窄屏压缩; folder / null → "—") ----
+                    SizedBox(
+                      width: dateWidth,
+                      child: Text(
+                        _formatDate(obj.lastModified, compact: narrow),
+                        style: theme.textTheme.mono?.copyWith(
+                          color: (obj.isFolder || obj.lastModified == null)
+                              ? theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.3)
+                              : theme.colorScheme.onSurface
+                                  .withValues(alpha: 0.5),
+                          fontSize: 11,
                         ),
+                        textAlign: TextAlign.end,
                       ),
-                      const SizedBox(width: 16),
-                    ],
+                    ),
+                    const SizedBox(width: 16),
                     // ---- 5: 大小 (等宽右对齐) ----
                     SizedBox(
                       width: narrow ? 60 : 72,
@@ -318,10 +322,15 @@ class _FileTileState extends ConsumerState<FileTile> {
     return Icons.insert_drive_file_outlined;
   }
 
-  String _formatDate(DateTime d) {
-    final y = d.year.toString().padLeft(4, '0');
+  String _formatDate(DateTime? d, {bool compact = false}) {
+    // compact = true 用 "MM-DD" (5 字符), 适合窄屏 60px 列
+    // compact = false 用 "YYYY-MM-DD" (10 字符), 适合宽屏 130px 列
+    // 传 null 或 folder (由 caller 决定传不传) → 返回 "—"
+    if (d == null) return '—';
     final m = d.month.toString().padLeft(2, '0');
     final day = d.day.toString().padLeft(2, '0');
+    if (compact) return '$m-$day';
+    final y = d.year.toString().padLeft(4, '0');
     return '$y-$m-$day';
   }
 
