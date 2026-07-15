@@ -84,11 +84,9 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
             tooltip: '新建文件夹',
             onPressed: bucket == null ? null : _showNewFolderDialog,
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            tooltip: '刷新',
-            onPressed: () => ref.read(objectListProvider.notifier).refresh(),
-          ),
+          // 刷新入口只保留 list 区域的下拉手势 (RefreshIndicator), AppBar 不
+          // 重复按钮. 之前两个都有, 用户在桌面端习惯点 AppBar 那个, 但手机端
+          // 只能下拉, 体验不一致. 统一走下拉, AppBar 少一个按钮更干净.
           const ThemeMenuButton(),
           // 切换服务器入口已经在 AppBar 标题里 (server 名字可点 → 弹切换 sheet),
           // 这里的 more_horiz 弹窗只一个 "切换服务器" 项, 重复了, 去掉.

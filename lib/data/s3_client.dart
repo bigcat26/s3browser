@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:xml/xml.dart' as xml;
 import 'package:path/path.dart' as p;
 
@@ -242,6 +243,10 @@ class S3Client {
       for (final cp in doc.findAllElements('CommonPrefixes')) {
         final p = cp.getElement('Prefix')?.innerText ?? '';
         if (p.isEmpty) continue;
+        // 隐藏 macOS / iOS Finder 留下的元数据目录, 跟 Cyberduck / Transmit
+        // 行为一致. S3 上没意义, 删也删不掉 (server 端 list 假返回, HEAD 直接
+        // 403), 显示出来只会让用户右键删 → 看到 "已删除 0 个对象" 一脸懵.
+        if (isMacOSArtifact(p)) continue;
         results.add(S3Object(
           key: p,
           name: p.endsWith('/') ? p.split('/').reversed.skip(1).first : p.split('/').last,
@@ -258,6 +263,8 @@ class S3Client {
         if (k.isEmpty) continue;
         // 跳过 prefix 自身的 marker (S3 有时会返回)
         if (k == prefix) continue;
+        // 隐藏 macOS 元数据文件 (._xxx, .DS_Store 等), 跟 CommonPrefixes 过滤一致.
+        if (isMacOSArtifact(k)) continue;
         final size = int.tryParse(c.getElement('Size')?.innerText ?? '0') ?? 0;
         final lm = c.getElement('LastModified')?.innerText;
         results.add(S3Object(
@@ -610,6 +617,15 @@ class S3Client {
           : null;
     } while (continuationToken != null);
 
+    // 兜底: list 返回 0 keys 时 (空 folder / phantom marker / @eaDir 之类
+    // server 端 list 假返回), 试删 prefix marker 本身. S3 spec 里 folder
+    // marker 是 0 字节带尾 '/' 的真 key, 删了才算彻底. deleteObjects 响应
+    // 里没 <Error> 就当成功 (即使 server 实际上没 marker, 也无害, 跟 AWS S3
+    // 行为一致: delete 不存在的 key 是 idempotent 的 no-op).
+    if (total == 0) {
+      total += await deleteObjects(bucket: bucket, keys: [normalized]);
+    }
+
     return total;
   }
 
@@ -757,6 +773,65 @@ void checkS3ErrorBody(String body) {
 
 String _truncateBody(String s, int n) =>
     s.length <= n ? s : '${s.substring(0, n)}...';
+
+/// 判断 S3 key 是不是 macOS / iOS Finder 留下的元数据, 列表展示时该隐藏.
+///
+/// 之前 list 把 `@eaDir/` 这种目录也带出来, 用户右键 → 删 → `deletePrefix`
+/// 走 list 返回 0 keys → 直接 break, snackbar 显示 "已删除 0 个对象".
+/// 实际原因:
+///   - `s3.internal.example.com` 这种 server 在 list 时把 `@eaDir` 当成虚拟 CommonPrefix
+///     返回, 但 key 在 S3 里根本不存在 (HEAD 直接 403).
+///   - 即使调 `deleteObjects` 删 `@eaDir/`, server 响应里没 `<Error>`, 我们的
+///     "keys - errors" 计数当成 1 删成功, 但 list 还是返回它 (server 端
+///     假数据, 没法真删).
+///
+/// 跟 Cyberduck / Transmit / CloudBerry 行业惯例一致, 直接过滤掉. 覆盖:
+///   - `@eaDir/...`  (Finder 资源分叉目录)
+///   - `._xxx`      (AppleDouble 文件的元数据)
+///   - `.DS_Store`  (桌面服务存储, 跨目录都在)
+///   - `.Spotlight-V100/` / `.Trashes/` / `.fseventsd/` (macOS 系统目录)
+///   - `.TemporaryItems/` / `.DocumentRevisions-V100/` (Time Machine 临时)
+///   - `Thumbs.db`  (Windows 缩略图, 顺手一起)
+///
+/// 函数对 [isMacOSArtifact] 测试可见 (单参数纯函数), 过滤逻辑在 listObjects
+/// 的 CommonPrefixes / Contents 两条路径都用得上, 一处定义保证一致.
+@visibleForTesting
+bool isMacOSArtifact(String key) {
+  if (key.isEmpty) return false;
+  // 末段名 (剥掉前缀路径) 才是真正决定因素. e.g. "photos/2024/._IMG_001.jpg"
+  // 末段是 "._IMG_001.jpg", 匹配 AppleDouble 规则.
+  final lastSlash = key.lastIndexOf('/');
+  final basename = lastSlash >= 0 ? key.substring(lastSlash + 1) : key;
+  // 以 "._" 开头 (AppleDouble 隐藏元数据)
+  if (basename.startsWith('._')) return true;
+  // 精确匹配 (大小写敏感, macOS 默认 HFS+/APFS 不区分, 但 S3 key 区分,
+  // 我们按 S3 key 的 byte-level 来比)
+  const exactNames = <String>{
+    '.DS_Store',
+    'Thumbs.db',
+    'desktop.ini',
+  };
+  if (exactNames.contains(basename)) return true;
+  // 系统目录 (必须带 '/', 防止误伤名字里偶然含这个串的 user file).
+  // 注意 @eaDir 经常是嵌套的: e.g. photos/2024/@eaDir/IMG_001.jpg/, 不一定
+  // 出现在 path 开头. 用 '/' + dir + '/' 找路径中是否含这个 segment, 匹配
+  // "@eaDir/" 出现在中间的情况. 跟 path segment 必须以 '/' 开头对齐, 防止
+  // "my_@eaDir/" 这种用户自定义名字误伤.
+  const systemDirs = <String>{
+    '@eaDir/',
+    '.Spotlight-V100/',
+    '.Trashes/',
+    '.fseventsd/',
+    '.TemporaryItems/',
+    '.DocumentRevisions-V100/',
+  };
+  for (final d in systemDirs) {
+    if (key == d) return true; // 顶层就是它
+    if (key.startsWith(d)) return true; // 顶层下子项
+    if (key.contains('/$d')) return true; // 任意深度嵌套 (e.g. photos/2024/@eaDir/...)
+  }
+  return false;
+}
 
 /// S3 服务端在 HTTP 200 里塞 Error XML 时的异常 (RustFS / 部分 MinIO fork 会这样).
 /// 比 DioException 简单, 错误信息直接来自服务端 XML 的 Code + Message.
