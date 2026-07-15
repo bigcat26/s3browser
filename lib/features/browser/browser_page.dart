@@ -2,13 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:path/path.dart' as p;
+import 'package:open_file/open_file.dart';
 import 'package:dio/dio.dart' show CancelToken, DioException;
 import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart' hide DropTarget;
 
 import '../../core/error_messages.dart';
+import '../../core/format_bytes.dart';
+import '../../core/local_files.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/s3_object.dart';
 import '../../data/models/server.dart';
@@ -16,6 +17,7 @@ import '../../data/s3_client.dart' show S3Error;
 import '../../providers/active_server_provider.dart';
 import '../../providers/bucket_provider.dart';
 import '../../providers/server_list_provider.dart';
+import '../local_downloads/local_downloads_page.dart';
 import '../servers/server_form_page.dart';
 import '../theme_menu_button.dart';
 import 'widgets/batch_action_bar.dart';
@@ -83,6 +85,15 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
             icon: const Icon(Icons.create_new_folder_outlined),
             tooltip: '新建文件夹',
             onPressed: bucket == null ? null : _showNewFolderDialog,
+          ),
+          IconButton(
+            // folder_open + 视觉上像"打开"本地文件夹的入口. folder_download
+            // / download_for_offline 在 Material Icons 当前版本没 outlined 变体.
+            icon: const Icon(Icons.folder_open_outlined),
+            tooltip: '本地下载',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const LocalDownloadsPage()),
+            ),
           ),
           // 刷新入口只保留 list 区域的下拉手势 (RefreshIndicator), AppBar 不
           // 重复按钮. 之前两个都有, 用户在桌面端习惯点 AppBar 那个, 但手机端
@@ -718,17 +729,50 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
     final bucket = ref.read(currentBucketProvider);
     if (client == null || bucket == null) return;
 
-    final dir = await getApplicationDocumentsDirectory();
-    final savePath = p.join(dir.path, 's3browser', bucket, obj.name);
+    // 默认下载到系统 Downloads 文件夹, 跟 Safari / Chrome / 系统下载管理器
+    // 行为一致. iOS 没公共 Downloads, getLocalDownloadsDir 兜底到 app
+    // Documents/downloads (Apple 隐私模型要求 app 数据隔离).
+    // 之前用 getApplicationDocumentsDirectory()/s3browser/bucket/obj.name,
+    // 手机用户根本找不到这个路径.
+    final File saveFile;
+    try {
+      saveFile = await getLocalDownloadPath(obj.name);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('无法创建下载路径: $e'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
+        );
+      }
+      return;
+    }
+    final savePath = saveFile.path;
+
+    // 覆盖检查: 同名文件已存在 → 不管大小一不一样都问 (用户要求). 显示
+    // 本地 vs 云端两个 size, 让用户判断.
+    // 注意 statSync 是 IO, 不放 await, 但同步在 dart 里也走 event loop, 不卡 UI.
+    if (File(savePath).existsSync()) {
+      final existingSize = File(savePath).lengthSync();
+      final ok = await _confirmOverwrite(
+        name: obj.name,
+        existingSize: existingSize,
+        newSize: obj.size,
+      );
+      if (ok != true) return; // 取消
+    }
+
     // CancelToken 让 dialog 里的"取消"按钮真的能中断正在跑的网络请求.
     // 之前没有这个, 取消只是关掉 dialog 但 dio 还在后台跑, 浪费流量 + 文件
     // 还是会写完, 用户体感是"取消了个寂寞".
     final cancelToken = CancelToken();
     final progress = DownloadProgress();
 
-    // getApplicationDocumentsDirectory() 是个 await 间隙, 用户可能切走
-    // (比如快速点了别的 server 切换). 没 mounted 就别开 dialog 了, 不然
-    // 会用死掉的 context 抛 use_build_context_synchronously / dialog 不显示.
+    // getLocalDownloadPath() 内部 await getDownloadsDirectory 是个 await
+    // 间隙, 用户可能切走 (比如快速点了别的 server 切换). 没 mounted 就别开
+    // dialog 了, 不然会用死掉的 context 抛 use_build_context_synchronously /
+    // dialog 不显示.
     if (!mounted) return;
 
     // 先开 dialog, barrierDismissible: false (必须点取消或等完成).
@@ -828,7 +872,7 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
                       .colorScheme
                       .onInverseSurface
                       .withValues(alpha: 0.6),
-                ),
+                  ),
               ),
             ],
           ),
@@ -838,9 +882,104 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
       );
       return;
     }
-    // 成功
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('已下载到 $savePath')),
+    // 成功: snackbar 带 "打开" action, 调 open_file 走系统 "打开方式" 弹窗
+    // (Android Intent / iOS UIDocumentInteractionController). 之前只
+    // snackbar 提示路径, 用户得自己去找, 体验差.
+    // 在 await 之前把 messenger / colorScheme / context 抓住, 避免
+    // use_build_context_synchronously 警告 (async gap 后 analyzer 不认外层
+    // 的 mounted check, 需要重新拿 context.mounted).
+    final messenger = ScaffoldMessenger.of(context);
+    final errorColor = Theme.of(context).colorScheme.error;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('已下载到 $savePath'),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: '打开',
+          onPressed: () async {
+            final result = await OpenFile.open(savePath);
+            // 用 messenger + 提前抓的 errorColor, 不再 use_build_context_synchronously.
+            if (result.type != ResultType.done) {
+              messenger.showSnackBar(
+                SnackBar(
+                  content: Text('无法打开: ${result.message}'),
+                  backgroundColor: errorColor,
+                ),
+              );
+            }
+          },
+        ),
+      ),
+    );
+  }
+
+  /// 同名文件已存在 → 弹覆盖确认. 不管大小一不一样都问 (用户要求), 显示
+  /// 本地 vs 云端 size 让用户判断. 取消返回 null, 覆盖返回 true.
+  Future<bool?> _confirmOverwrite({
+    required String name,
+    required int existingSize,
+    required int newSize,
+  }) async {
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('文件已存在'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Downloads 里有同名文件 "$name", 是否覆盖?'),
+            const SizedBox(height: 12),
+            _sizeRow('本地', existingSize),
+            const SizedBox(height: 4),
+            _sizeRow('云端', newSize),
+            if (existingSize == newSize) ...[
+              const SizedBox(height: 10),
+              Text(
+                '大小一致, 但仍然覆盖 (本地可能是之前下载的同名文件).',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).hintColor,
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('覆盖'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _sizeRow(String label, int bytes) {
+    return Row(
+      children: [
+        SizedBox(
+          width: 40,
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              color: Theme.of(context).hintColor,
+            ),
+          ),
+        ),
+        Text(
+          formatBytesShort(bytes),
+          style: const TextStyle(
+            fontSize: 13,
+            fontFeatures: [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
     );
   }
 

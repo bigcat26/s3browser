@@ -15,6 +15,8 @@
 
 import 'package:flutter/material.dart';
 
+import '../../../core/format_bytes.dart';
+
 /// 下载进度状态机. [DownloadProgressDialog] 监听它的 [Listenable] 重绘.
 class DownloadProgress extends ChangeNotifier {
   int _received = 0;
@@ -135,21 +137,12 @@ class DownloadProgressDialog extends StatelessWidget {
   }
 }
 
-/// "5.2 MB / 12.4 MB" 或 "5.2 MB" (total 未知时). 复用同一份格式化逻辑.
+/// "5.2 MB / 12.4 MB" 或 "5.2 MB" (total 未知时). 复用 [formatBytesShort].
 @visibleForTesting
 String formatDownloadSize(int received, int total) {
-  final r = _fmtBytes(received);
+  final r = formatBytesShort(received);
   if (total > 0) {
-    return '$r / ${_fmtBytes(total)}';
+    return '$r / ${formatBytesShort(total)}';
   }
   return r;
-}
-
-String _fmtBytes(int b) {
-  if (b < 1024) return '$b B';
-  if (b < 1024 * 1024) return '${(b / 1024).toStringAsFixed(1)} KB';
-  if (b < 1024 * 1024 * 1024) {
-    return '${(b / 1024 / 1024).toStringAsFixed(1)} MB';
-  }
-  return '${(b / 1024 / 1024 / 1024).toStringAsFixed(2)} GB';
 }
