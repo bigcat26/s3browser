@@ -736,10 +736,16 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
       // 糊用户一脸. raw 留底, 高级用户 / 报 bug 时可以看.
       if (mounted) {
         final friendly = explainError(e, context: '下载失败');
-        // 提取请求 URL (S3Error 带 url, 别的异常没有), 给开发者看
-        final urlSuffix = e is S3Error && e.url != null
-            ? '\nURL: ${e.url}'
-            : '';
+        // 拼装诊断信息: URL + raw body. S3Error 带这两条 (4xx 兜底抛的
+        // 时候塞进去的), 别的异常 (DioException 等) 拿不到.
+        // 全部 9pt monospace, 用户能截图发我定位 server 端问题
+        // (e.g. nginx proxy 对 .apk path 返回 400, raw body 里能看到)
+        final debugLines = <String>[];
+        if (e is S3Error && e.url != null) {
+          debugLines.add('URL: ${e.url}');
+        }
+        debugLines.add('RAW: ${friendly.raw}');
+        final debugText = debugLines.join('\n');
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Column(
@@ -762,21 +768,20 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
                         .withValues(alpha: 0.8),
                   ),
                 ),
-                if (urlSuffix.isNotEmpty)
-                  Text(
-                    urlSuffix,
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontFamily: 'monospace',
-                      color: Theme.of(context)
-                          .colorScheme
-                          .onInverseSurface
-                          .withValues(alpha: 0.6),
-                    ),
+                Text(
+                  debugText,
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontFamily: 'monospace',
+                    color: Theme.of(context)
+                        .colorScheme
+                        .onInverseSurface
+                        .withValues(alpha: 0.6),
                   ),
+                ),
               ],
             ),
-            duration: const Duration(seconds: 8),
+            duration: const Duration(seconds: 12),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );
