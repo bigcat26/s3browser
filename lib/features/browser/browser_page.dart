@@ -394,31 +394,49 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
   }
 
   Widget _buildList(List<S3Object> objects, bool hasSelection) {
-    return Column(
-      children: [
-        FileListHeader(objects: objects),
-        Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.only(top: 0, bottom: 80),
-            itemCount: objects.length,
-            itemBuilder: (_, i) => _buildRow(objects[i]),
+    // 下拉刷新: RefreshIndicator 套 CustomScrollView, header 也参与滚动
+    // 跟下拉手势 (之前 header 在 Column 外面, 下拉只到 ListView, 行为
+    // 不一致). CustomScrollView + Sliver 把 header + 行统一, 下拉任何位置
+    // 都触发.
+    //
+    // onRefresh 调 objectListProvider.refresh(), 内部 state 走 loading →
+    // data, AsyncValue.when() 默认 skipLoadingOnRefresh: true, 刷新期间
+    // data 回调仍返回旧值, RefreshIndicator 不会被替换.
+    return RefreshIndicator(
+      onRefresh: () => ref.read(objectListProvider.notifier).refresh(),
+      child: CustomScrollView(
+        // AlwaysScrollable 让短列表也能下拉 (默认 ListView 内容填不满
+        // 时不可滚, 下拉手势识别不到)
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(child: FileListHeader(objects: objects)),
+          SliverPadding(
+            padding: const EdgeInsets.only(bottom: 80),
+            sliver: SliverList.builder(
+              itemCount: objects.length,
+              itemBuilder: (_, i) => _buildRow(objects[i]),
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildGrid(List<S3Object> objects, bool hasSelection) {
-    return GridView.builder(
-      padding: const EdgeInsets.all(20),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 160,
-        childAspectRatio: 0.9,
-        crossAxisSpacing: 8,
-        mainAxisSpacing: 8,
+    return RefreshIndicator(
+      onRefresh: () => ref.read(objectListProvider.notifier).refresh(),
+      child: GridView.builder(
+        padding: const EdgeInsets.all(20),
+        physics: const AlwaysScrollableScrollPhysics(),
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 160,
+          childAspectRatio: 0.9,
+          crossAxisSpacing: 8,
+          mainAxisSpacing: 8,
+        ),
+        itemCount: objects.length,
+        itemBuilder: (_, i) => _buildRow(objects[i], isGrid: true),
       ),
-      itemCount: objects.length,
-      itemBuilder: (_, i) => _buildRow(objects[i], isGrid: true),
     );
   }
 
