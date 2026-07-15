@@ -52,7 +52,10 @@ class S3Client {
 
   String _pathPrefix({String? bucket, String key = ''}) {
     if (config.pathStyle && bucket != null) {
-      return '/$bucket${key.isEmpty ? '' : _encodePath(key)}';
+      if (key.isEmpty) return '/$bucket';
+      // bucket 和 key 之间必须有 '/', 之前漏了导致 URL 拼成
+      // '/packagescomposeApp-debug.apk' (少了 '/'), server 端 400/404.
+      return '/$bucket/${_encodePath(key)}';
     }
     return _encodePath(key);
   }
