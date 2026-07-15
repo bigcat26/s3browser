@@ -11,6 +11,7 @@ import '../../core/error_messages.dart';
 import '../../core/theme/app_theme.dart';
 import '../../data/models/s3_object.dart';
 import '../../data/models/server.dart';
+import '../../data/s3_client.dart' show S3Error;
 import '../../providers/active_server_provider.dart';
 import '../../providers/bucket_provider.dart';
 import '../../providers/server_list_provider.dart';
@@ -735,6 +736,10 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
       // 糊用户一脸. raw 留底, 高级用户 / 报 bug 时可以看.
       if (mounted) {
         final friendly = explainError(e, context: '下载失败');
+        // 提取请求 URL (S3Error 带 url, 别的异常没有), 给开发者看
+        final urlSuffix = e is S3Error && e.url != null
+            ? '\nURL: ${e.url}'
+            : '';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Column(
@@ -757,9 +762,21 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
                         .withValues(alpha: 0.8),
                   ),
                 ),
+                if (urlSuffix.isNotEmpty)
+                  Text(
+                    urlSuffix,
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontFamily: 'monospace',
+                      color: Theme.of(context)
+                          .colorScheme
+                          .onInverseSurface
+                          .withValues(alpha: 0.6),
+                    ),
+                  ),
               ],
             ),
-            duration: const Duration(seconds: 5),
+            duration: const Duration(seconds: 8),
             backgroundColor: Theme.of(context).colorScheme.error,
           ),
         );

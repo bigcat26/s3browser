@@ -166,6 +166,7 @@ class S3Client {
       throw S3Error(
         'HTTP$code',
         bodyStr.isEmpty ? 'No response body' : _truncateBody(bodyStr, 200),
+        url: fullUrl,
       );
     }
 
@@ -753,8 +754,13 @@ String _truncateBody(String s, int n) =>
 class S3Error implements Exception {
   final String code;
   final String message;
-  S3Error(this.code, this.message);
+  // 触发这个错的请求 URL, 排错时给开发者看, snackbar 末尾也会显示
+  final String? url;
+  S3Error(this.code, this.message, {this.url});
 
   @override
-  String toString() => 'S3 $code: $message';
+  String toString() {
+    final base = 'S3 $code: $message';
+    return url == null ? base : '$base\nURL: $url';
+  }
 }
