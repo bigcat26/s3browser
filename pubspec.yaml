@@ -47,6 +47,11 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  # path_provider_platform_interface + plugin_platform_interface 是
+  # path_provider 的传递依赖, 但我们 test 里直接 mock PathProviderPlatform
+  # (走这俩), linter 要求显式声明.
+  path_provider_platform_interface: ^2.1.0
+  plugin_platform_interface: ^2.1.0
 
 flutter:
   uses-material-design: true

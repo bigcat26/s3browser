@@ -8,7 +8,6 @@
 // 用 MethodChannel mock 走 path_provider, 这样能跑在 flutter_test 里.
 
 import 'dart:io';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
