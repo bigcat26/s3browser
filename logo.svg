@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <defs>
+    <clipPath id="strictLeaf">
+      <circle cx="334" cy="110" r="56" />
+    </clipPath>
+  </defs>
+
+  <!-- 背景底板 -->
+  <rect width="512" height="512" fill="#0A192F"/>
+
+  <!-- 主体外圈 -->
+  <circle cx="256" cy="276" r="144" fill="#1E3A8A"/>
+
+  <!-- 中层圆 -->
+  <circle cx="256" cy="276" r="110" fill="#3B82F6"/>
+
+  <!-- 经典叶子 -->
+  <circle cx="380" cy="166" r="56" fill="#3B82F6" clip-path="url(#strictLeaf)"/>
+
+  <!-- 核心数据块外框：深邃蓝正六边形（立方体边界，半径68） -->
+  <polygon points="256,208 315,242 315,310 256,344 197,310 197,242" fill="#0A192F"/>
+
+  <!-- 立方体顶面：科技亮蓝 (通过黄金比例微移，营造几何光影) -->
+  <polygon points="256,208 315,242 256,276 197,242" fill="#3B82F6" opacity="0.85"/>
+
+  <!-- 立方体左内面：青色数据层（0.618缩放，Object内核） -->
+  <polygon points="256,276 197,242 197,310 256,344" fill="#06B6D4"/>
+
+  <!-- 立方体右内面：纯白高光核心（核心数据资产） -->
+  <polygon points="256,276 315,242 315,310 256,344" fill="#FFFFFF" opacity="0.9"/>
+  
+  <!-- 贯穿多维的轴线切割，达成平面的硬核科技感 -->
+  <line x1="256" y1="276" x2="256" y2="344" stroke="#0A192F" stroke-width="3"/>
+</svg>
