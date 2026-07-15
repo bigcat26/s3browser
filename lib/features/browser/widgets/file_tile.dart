@@ -184,23 +184,24 @@ class _FileTileState extends ConsumerState<FileTile> {
                     ),
                     const SizedBox(width: 12),
                     // ---- 6: 操作 ----
+                    // 一直显示, 不依赖 hover. 之前 opacity = _hover ? 1 : 0,
+                    // 手机没 hover 概念, 按钮永远看不见, 重命名/移动/删除等都
+                    // 触发不了 (反馈 "少了重命名功能"). 改成 0.35 → 1.0 两档,
+                    // 桌面 hover 上去有反馈, 手机端始终可见.
                     SizedBox(
                       width: 32,
-                      child: AnimatedOpacity(
-                        duration: const Duration(milliseconds: 120),
-                        opacity: _hover ? 1.0 : 0.0,
-                        // 用 InkWell + Icon 不用 IconButton, 避免 IconButton 默认
-                        // 8px padding + tap target size 把行高撑到 28+5=33,
-                        // 跟其他元素 (icon 16, text ~20) 差 13px, 行内出现 5-12px bottom overflow
-                        child: InkWell(
-                          onTap: () => _showContextMenu(context),
-                          borderRadius: BorderRadius.circular(4),
-                          child: Tooltip(
-                            message: '操作',
-                            child: Container(
-                              width: 32,
-                              height: 32,
-                              alignment: Alignment.center,
+                      child: InkWell(
+                        onTap: () => _showContextMenu(context),
+                        borderRadius: BorderRadius.circular(4),
+                        child: Tooltip(
+                          message: '操作',
+                          child: Container(
+                            width: 32,
+                            height: 32,
+                            alignment: Alignment.center,
+                            child: AnimatedOpacity(
+                              duration: const Duration(milliseconds: 120),
+                              opacity: _hover ? 1.0 : 0.35,
                               child: const Icon(Icons.more_horiz, size: 18),
                             ),
                           ),
