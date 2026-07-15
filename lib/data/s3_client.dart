@@ -140,10 +140,32 @@ class S3Client {
     // 让 dio 不抛 4xx, 5xx 会抛 DioException, 我们这里补 4xx 这条.
     final code = resp.statusCode ?? 0;
     if (code >= 400) {
-      final body = resp.data is String ? resp.data as String : '';
+      // 读 body: 字符串直接拿, stream 需要 drain 出来才能看服务端说啥.
+      // 之前漏了 stream 路径, 下载类请求 (returnResponseStream: true) 4xx
+      // 永远 "No response body", 看不到服务端具体说啥. 现在补上.
+      String bodyStr = '';
+      if (resp.data is String) {
+        bodyStr = resp.data as String;
+      } else if (resp.data != null) {
+        // 兜底: 用 toString 拿 (ResponseBody.toString 不会暴露 body bytes,
+        // 实际还是得 drain). 用 cast + drain stream.
+        try {
+          // ignore: avoid_dynamic_calls
+          final stream = (resp.data as dynamic).stream as dynamic;
+          // bytesToString 是 Stream<List<int>> 的扩展, 限制读 4KB
+          // (4xx body 几乎都 < 4KB, 真下载响应 body 大但不进这条分支)
+          final bytes = await stream.take(4096).fold<List<int>>(
+            [],
+            (acc, chunk) => acc..addAll(chunk),
+          );
+          bodyStr = utf8.decode(bytes, allowMalformed: true);
+        } catch (_) {
+          bodyStr = '';
+        }
+      }
       throw S3Error(
         'HTTP$code',
-        body.isEmpty ? 'No response body' : _truncateBody(body, 200),
+        bodyStr.isEmpty ? 'No response body' : _truncateBody(bodyStr, 200),
       );
     }
 
