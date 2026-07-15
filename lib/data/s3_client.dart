@@ -81,6 +81,7 @@ class S3Client {
     ProgressCallback? onSendProgress,
     ProgressCallback? onReceiveProgress,
     bool returnResponseStream = false,
+    CancelToken? cancelToken,
   }) async {
     query ??= {};
     extraHeaders ??= {};
@@ -123,12 +124,15 @@ class S3Client {
       validateStatus: (s) => s != null && s < 500,
     );
 
+    // dio 5.10 把 cancelToken 从 Options 挪到 request() 顶层参数, 5.4
+    // 之前的版本 Options 还能接. 我们锁到 5.10+, 必须用新 API.
     final resp = await _dio.request<dynamic>(
       fullUrl,
       data: body,
       options: opts,
       onSendProgress: onSendProgress,
       onReceiveProgress: onReceiveProgress,
+      cancelToken: cancelToken,
     );
 
     // 嗅探 RustFS / 部分 MinIO fork 行为: HTTP 200 但 body 是 <Error>...
@@ -289,6 +293,7 @@ class S3Client {
     required String key,
     required String savePath,
     void Function(int received, int total)? onProgress,
+    CancelToken? cancelToken,
   }) async {
     final host = _host(bucket: bucket);
     final path = _pathPrefix(bucket: bucket, key: key);
@@ -300,6 +305,7 @@ class S3Client {
       path: path,
       onReceiveProgress: (r, t) => onProgress?.call(r, t),
       returnResponseStream: true,
+      cancelToken: cancelToken,
     );
     final stream = resp.data as ResponseBody;
     final file = File(savePath);

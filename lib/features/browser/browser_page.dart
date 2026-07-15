@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
+import 'package:dio/dio.dart' show CancelToken, DioException;
 import 'dart:io';
 import 'package:desktop_drop/desktop_drop.dart' hide DropTarget;
 
@@ -25,6 +26,7 @@ import 'dialogs/upload_dialog.dart';
 import 'dialogs/move_dialog.dart';
 import 'dialogs/new_folder_dialog.dart';
 import 'dialogs/rename_dialog.dart';
+import 'dialogs/download_progress_dialog.dart';
 
 class BrowserPage extends ConsumerStatefulWidget {
   const BrowserPage({super.key});
@@ -717,76 +719,131 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
     final client = ref.read(s3ClientProvider);
     final bucket = ref.read(currentBucketProvider);
     if (client == null || bucket == null) return;
+
+    final dir = await getApplicationDocumentsDirectory();
+    final savePath = p.join(dir.path, 's3browser', bucket, obj.name);
+    // CancelToken 让 dialog 里的"取消"按钮真的能中断正在跑的网络请求.
+    // 之前没有这个, 取消只是关掉 dialog 但 dio 还在后台跑, 浪费流量 + 文件
+    // 还是会写完, 用户体感是"取消了个寂寞".
+    final cancelToken = CancelToken();
+    final progress = DownloadProgress();
+
+    // getApplicationDocumentsDirectory() 是个 await 间隙, 用户可能切走
+    // (比如快速点了别的 server 切换). 没 mounted 就别开 dialog 了, 不然
+    // 会用死掉的 context 抛 use_build_context_synchronously / dialog 不显示.
+    if (!mounted) return;
+
+    // 先开 dialog, barrierDismissible: false (必须点取消或等完成).
+    // 用 unawaited fire-and-forget: 我们用 navigatorKey / pop 显式关,
+    // 不靠 dialog future 自动 resolve (那样 await 会卡住后续).
+    // ignore: unawaited_futures
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => DownloadProgressDialog(
+        progress: progress,
+        filename: obj.name,
+        onCancel: () => cancelToken.cancel('user cancelled'),
+      ),
+    );
+
+    bool cancelled = false;
+    Object? otherError;
+
     try {
-      final dir = await getApplicationDocumentsDirectory();
-      final savePath = p.join(dir.path, 's3browser', bucket, obj.name);
       await client.downloadObject(
         bucket: bucket,
         key: obj.key,
         savePath: savePath,
-        onProgress: (received, total) {},
+        onProgress: (r, t) => progress.update(r, t),
+        cancelToken: cancelToken,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('已下载到 $savePath')),
-        );
+      progress.markFinished();
+    } on DioException catch (e) {
+      if (CancelToken.isCancel(e)) {
+        cancelled = true;
+      } else {
+        otherError = e;
       }
     } catch (e) {
-      // 用 FriendlyError 翻译 dio / S3 错, 别直接 "下载失败: <DioException 堆栈>"
-      // 糊用户一脸. raw 留底, 高级用户 / 报 bug 时可以看.
+      otherError = e;
+    } finally {
+      // 无论成功 / 取消 / 错, dialog 都关掉. 取消时也用 Navigator.pop 而
+      // 不是 barrierDismissible: true, 避免用户误触 dialog 外面导致 dio
+      // 还在跑 + 没了 UI 反馈.
       if (mounted) {
-        final friendly = explainError(e, context: '下载失败');
-        // 拼装诊断信息: URL + raw body. S3Error 带这两条 (4xx 兜底抛的
-        // 时候塞进去的), 别的异常 (DioException 等) 拿不到.
-        // 全部 9pt monospace, 用户能截图发我定位 server 端问题
-        // (e.g. nginx proxy 对 .apk path 返回 400, raw body 里能看到)
-        final debugLines = <String>[];
-        if (e is S3Error && e.url != null) {
-          debugLines.add('URL: ${e.url}');
-        }
-        debugLines.add('RAW: ${friendly.raw}');
-        final debugText = debugLines.join('\n');
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  friendly.message,
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                Text(
-                  friendly.hint,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onInverseSurface
-                        .withValues(alpha: 0.8),
-                  ),
-                ),
-                Text(
-                  debugText,
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontFamily: 'monospace',
-                    color: Theme.of(context)
-                        .colorScheme
-                        .onInverseSurface
-                        .withValues(alpha: 0.6),
-                  ),
-                ),
-              ],
-            ),
-            duration: const Duration(seconds: 12),
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-        );
+        Navigator.of(context, rootNavigator: true).pop();
       }
     }
+
+    if (!mounted) return;
+
+    if (cancelled) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已取消下载')),
+      );
+      return;
+    }
+    if (otherError != null) {
+      // 用 FriendlyError 翻译 dio / S3 错, 别直接 "下载失败: <DioException 堆栈>"
+      // 糊用户一脸. raw 留底, 高级用户 / 报 bug 时可以看.
+      final e = otherError;
+      final friendly = explainError(e, context: '下载失败');
+      // 拼装诊断信息: URL + raw body. S3Error 带这两条 (4xx 兜底抛的
+      // 时候塞进去的), 别的异常 (DioException 等) 拿不到.
+      // 全部 9pt monospace, 用户能截图发我定位 server 端问题
+      // (e.g. nginx proxy 对 .apk path 返回 400, raw body 里能看到)
+      final debugLines = <String>[];
+      if (e is S3Error && e.url != null) {
+        debugLines.add('URL: ${e.url}');
+      }
+      debugLines.add('RAW: ${friendly.raw}');
+      final debugText = debugLines.join('\n');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                friendly.message,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                friendly.hint,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onInverseSurface
+                      .withValues(alpha: 0.8),
+                ),
+              ),
+              Text(
+                debugText,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontFamily: 'monospace',
+                  color: Theme.of(context)
+                      .colorScheme
+                      .onInverseSurface
+                      .withValues(alpha: 0.6),
+                ),
+              ),
+            ],
+          ),
+          duration: const Duration(seconds: 12),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
+      return;
+    }
+    // 成功
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('已下载到 $savePath')),
+    );
   }
 
   void _showUploadSheet() {

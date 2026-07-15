@@ -71,3 +71,7 @@ android/local.properties
 # Generated Dart (e.g. build_runner 产物)
 # **/*.g.dart
 # **/*.freezed.dart
+
+# 临时调试 / 复现脚本 (含个人凭证, 不入库)
+tool/
+
