@@ -1,7 +1,7 @@
 /// 把 dio / SocketException / S3 服务端错翻译成人话.
 ///
 /// 之前直接 `error.toString()` 抛出来, 用户看到 "DioException [connection
-/// error]: The connection errored: Failed host lookup: 's3.internal.example.com' This
+/// error]: The connection errored: Failed host lookup: 'example.com' This
 /// indicates an error which most likely cannot be solved by the library. OS
 /// Error: No address associated with hostname, errno = 7." 一脸懵.
 ///

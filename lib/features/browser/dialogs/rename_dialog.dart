@@ -30,14 +30,20 @@ class _RenameDialogState extends State<_RenameDialog> {
   void initState() {
     super.initState();
     _ctrl = TextEditingController(text: widget.currentName);
-    // 渲染完下一帧再 requestFocus, 配合 selectAll 让用户直接覆盖
+    // 渲染完下一帧再 requestFocus, 配合选区让用户直接覆盖
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _focus.requestFocus();
-      // 全选当前名, 移动端用户点 "重命名" 通常是想改, 不是再加字
+      // 默认只选中"文件名主体", 不选中扩展名: 用户改文件名时通常只想改
+      // 名字, 后缀保留 (OS 文件管理器标准行为). 想改后缀自己把选区拉过去.
+      // 隐藏文件 (.gitignore, 前导点) / 文件夹 (尾随 '/') / 无扩展名 → 整段选中.
+      final name = widget.currentName;
+      final dot = name.lastIndexOf('.');
+      final hasExt =
+          dot > 0 && dot < name.length - 1 && !name.endsWith('/');
       _ctrl.selection = TextSelection(
         baseOffset: 0,
-        extentOffset: widget.currentName.length,
+        extentOffset: hasExt ? dot : name.length,
       );
     });
   }

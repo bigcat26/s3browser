@@ -51,11 +51,33 @@ class _FileTileState extends ConsumerState<FileTile> {
   }
 
   // ---- 列表模式 (主用) ----
+  // 两行布局: 第一行 checkbox + 图标 + 文件名(主标题, 占满剩余宽度, 不再被
+  // 修改时间/大小列挤窄); 第二行(副标题) 修改时间居左 + 大小居右, 小号字体.
+  // 之前是 NAME | MODIFIED | SIZE 三列固定宽, 文件名被压窄显示不全. 改成副
+  // 标题后文件名能吃满整行宽度, 修改时间和大小在下方左右分布. 列头仍可在
+  // FileListHeader 点击排序 (见该文件, MODIFIED/SIZE 头跟副标题左右对齐).
   Widget _buildList(BuildContext context, IconData icon, bool selected) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final obj = widget.object;
     final showAccent = _hover || selected;
+
+    final dateText = _formatDate(obj.lastModified);
+    final sizeText = obj.isFolder ? '—' : obj.sizeHuman;
+    final dimDate = obj.isFolder || obj.lastModified == null;
+
+    final dateStyle = theme.textTheme.mono?.copyWith(
+      fontSize: 11,
+      color: dimDate
+          ? scheme.onSurface.withValues(alpha: 0.3)
+          : scheme.onSurface.withValues(alpha: 0.5),
+    );
+    final sizeStyle = theme.textTheme.mono?.copyWith(
+      fontSize: 11,
+      color: obj.isFolder
+          ? scheme.onSurface.withValues(alpha: 0.3)
+          : scheme.onSurface.withValues(alpha: 0.7),
+    );
 
     return MouseRegion(
       cursor: SystemMouseCursors.click,
@@ -87,130 +109,99 @@ class _FileTileState extends ConsumerState<FileTile> {
                 ),
               ),
             ),
-            padding: const EdgeInsets.symmetric(
-                horizontal: 20, vertical: 10),
-            // LayoutBuilder 拿实际可用宽, 窄屏 (< 560) 把 MODIFIED 列从 130px
-            // 砍到 60px + 格式从 "YYYY-MM-DD" 变 "MM-DD", 仍然显示. 之前
-            // 窄屏直接砍掉整列, 用户手机上看不到修改时间 (反馈 "缺少了修改
-            // 时间列"). 文件夹 / lastModified 为空 → 显示 "—" 占位, 列对齐
-            // 不抖.
-            child: LayoutBuilder(
-              builder: (ctx, c) {
-                final narrow = c.maxWidth < 560;
-                final dateWidth = narrow ? 60.0 : 130.0;
-                return Row(
-                  children: [
-                    // ---- 1: 选择 checkbox (永远显示) ----
-                    SizedBox(
-                      width: 18,
-                      child: InkWell(
-                        onTap: () => ref
-                            .read(selectionProvider.notifier)
-                            .toggle(obj.key),
-                        borderRadius: BorderRadius.circular(2),
-                        child: Padding(
-                          padding: const EdgeInsets.all(1),
-                          child: Icon(
-                            selected
-                                ? Icons.check_box
-                                : Icons.check_box_outline_blank,
-                            size: 16,
-                            color: selected
-                                ? scheme.primary
-                                : theme.colorScheme.onSurface
-                                    .withValues(alpha: 0.4),
-                          ),
-                        ),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // ---- 1: 选择 checkbox (永远显示) ----
+                SizedBox(
+                  width: 18,
+                  child: InkWell(
+                    onTap: () => ref
+                        .read(selectionProvider.notifier)
+                        .toggle(obj.key),
+                    borderRadius: BorderRadius.circular(2),
+                    child: Padding(
+                      padding: const EdgeInsets.all(1),
+                      child: Icon(
+                        selected
+                            ? Icons.check_box
+                            : Icons.check_box_outline_blank,
+                        size: 16,
+                        color: selected
+                            ? scheme.primary
+                            : theme.colorScheme.onSurface
+                                .withValues(alpha: 0.4),
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    // ---- 2: 图标 ----
-                    Icon(icon, size: 16, color: _iconColor(context, obj, selected)),
-                    const SizedBox(width: 12),
-                    // ---- 3: 文件名 (横向 scroll, 长名字能左右划看全) ----
-                    // 用 SingleChildScrollView(horizontal) 套 Text, 自然宽
-                    // 渲染; 容器宽 < 自然宽时, 横向拖动看尾部. 不影响 tap
-                    // (SingleChildScrollView 不吃 tap, 只吃 drag) 也不吃
-                    // 竖向滚动 (垂直 drag 透传给外层 ListView).
-                    Expanded(
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        // drag 结束后不会"反弹"回起点, 保持拖到的位置
-                        physics: const ClampingScrollPhysics(),
-                        // 不要这个, 默认就吃 tap, 单击穿透不到行 InkWell
-                        child: Text(
-                          obj.name,
-                          // 不带 ellipsis: scroll 没滚到底时尾部看不到, 但
-                          // 用户能划, 不强制截断
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: obj.isFolder
-                                ? FontWeight.w500
-                                : FontWeight.w400,
-                          ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // ---- 2: 图标 ----
+                Icon(icon, size: 16, color: _iconColor(context, obj, selected)),
+                const SizedBox(width: 12),
+                // ---- 3: 文件名(主标题) + 副标题行(修改时间左 / 大小右) ----
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        obj.name,
+                        // 现在占满整行宽度, 极少数超长名才省略号截断
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: obj.isFolder
+                              ? FontWeight.w500
+                              : FontWeight.w400,
                         ),
                       ),
-                    ),
-                    // ---- 4: 修改时间 (永远显示, 窄屏压缩; folder / null → "—") ----
-                    SizedBox(
-                      width: dateWidth,
-                      child: Text(
-                        _formatDate(obj.lastModified, compact: narrow),
-                        style: theme.textTheme.mono?.copyWith(
-                          color: (obj.isFolder || obj.lastModified == null)
-                              ? theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.3)
-                              : theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.5),
-                          fontSize: 11,
-                        ),
-                        textAlign: TextAlign.end,
-                      ),
-                    ),
-                    const SizedBox(width: 16),
-                    // ---- 5: 大小 (等宽右对齐) ----
-                    SizedBox(
-                      width: narrow ? 60 : 72,
-                      child: Text(
-                        obj.isFolder ? '—' : obj.sizeHuman,
-                        style: theme.textTheme.mono?.copyWith(
-                          color: obj.isFolder
-                              ? theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.3)
-                              : theme.colorScheme.onSurface
-                                  .withValues(alpha: 0.7),
-                        ),
-                        textAlign: TextAlign.end,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    // ---- 6: 操作 ----
-                    // 一直显示, 不依赖 hover. 之前 opacity = _hover ? 1 : 0,
-                    // 手机没 hover 概念, 按钮永远看不见, 重命名/移动/删除等都
-                    // 触发不了 (反馈 "少了重命名功能"). 改成 0.35 → 1.0 两档,
-                    // 桌面 hover 上去有反馈, 手机端始终可见.
-                    SizedBox(
-                      width: 32,
-                      child: InkWell(
-                        onTap: () => _showContextMenu(context),
-                        borderRadius: BorderRadius.circular(4),
-                        child: Tooltip(
-                          message: '操作',
-                          child: Container(
-                            width: 32,
-                            height: 32,
-                            alignment: Alignment.center,
-                            child: AnimatedOpacity(
-                              duration: const Duration(milliseconds: 120),
-                              opacity: _hover ? 1.0 : 0.35,
-                              child: const Icon(Icons.more_horiz, size: 18),
+                      const SizedBox(height: 3),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              dateText,
+                              style: dateStyle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
+                          const SizedBox(width: 8),
+                          Text(sizeText, style: sizeStyle),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // ---- 4: 操作 ----
+                // 一直显示, 不依赖 hover. 之前 opacity = _hover ? 1 : 0,
+                // 手机没 hover 概念, 按钮永远看不见, 重命名/移动/删除等都
+                // 触发不了 (反馈 "少了重命名功能"). 改成 0.35 → 1.0 两档,
+                // 桌面 hover 上去有反馈, 手机端始终可见.
+                SizedBox(
+                  width: 32,
+                  child: InkWell(
+                    onTap: () => _showContextMenu(context),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Tooltip(
+                      message: '操作',
+                      child: Container(
+                        width: 32,
+                        height: 32,
+                        alignment: Alignment.center,
+                        child: AnimatedOpacity(
+                          duration: const Duration(milliseconds: 120),
+                          opacity: _hover ? 1.0 : 0.35,
+                          child: const Icon(Icons.more_horiz, size: 18),
                         ),
                       ),
                     ),
-                  ],
-                );
-              },
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -323,15 +314,13 @@ class _FileTileState extends ConsumerState<FileTile> {
     return Icons.insert_drive_file_outlined;
   }
 
-  String _formatDate(DateTime? d, {bool compact = false}) {
-    // compact = true 用 "MM-DD" (5 字符), 适合窄屏 60px 列
-    // compact = false 用 "YYYY-MM-DD" (10 字符), 适合宽屏 130px 列
-    // 传 null 或 folder (由 caller 决定传不传) → 返回 "—"
+  String _formatDate(DateTime? d) {
+    // 副标题行有自己的整行宽度, 直接给完整 "YYYY-MM-DD" 即可.
+    // folder / null → "—" 占位, 行对齐不抖.
     if (d == null) return '—';
+    final y = d.year.toString().padLeft(4, '0');
     final m = d.month.toString().padLeft(2, '0');
     final day = d.day.toString().padLeft(2, '0');
-    if (compact) return '$m-$day';
-    final y = d.year.toString().padLeft(4, '0');
     return '$y-$m-$day';
   }
 

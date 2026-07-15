@@ -32,6 +32,9 @@ class S3Signer {
   }) : now = now ?? DateTime.now;
 
   /// 生成 Authorization header
+  ///
+  /// [nowOverride] 让调用方传入单一时间戳, 保证签名用的 x-amz-date 跟实际
+  /// 发出的 x-amz-date 是同一个值 (否则两次 DateTime.now() 跨秒就会不匹配).
   String sign({
     required String method,
     required String host,
@@ -39,8 +42,9 @@ class S3Signer {
     required Map<String, String> query,
     required Map<String, String> headers,
     required String payloadHash,
+    DateTime? nowOverride,
   }) {
-    final t = now().toUtc();
+    final t = (nowOverride ?? now()).toUtc();
     final amzDate = _formatAmzDate(t);          // 20260113T123456Z
     final dateStamp = _formatDateStamp(t);      // 20260113
 

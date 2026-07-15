@@ -36,7 +36,7 @@ void main() {
     });
 
     test('RustFS 风格的 200 + InvalidRequest body 也要抛', () {
-      // 这就是用户在 bucket.focalcrest.com 创建 yolo-hands/ 时服务端
+      // 这就是用户在某 S3 兼容服务上创建 yolo-hands/ 时服务端
       // 实际返回的 body 形态. 修前被静默吞, 修后立即抛.
       const body = '''<?xml version="1.0" encoding="UTF-8"?>
 <Error>

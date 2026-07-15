@@ -1,6 +1,6 @@
 // FriendlyError 翻译测试 — 防止回归: 之前直接 error.toString() 抛
 // "DioException [connection error]: The connection errored: Failed host
-// lookup: 's3.internal.example.com'..." 一脸懵, 现在 explainError 转成中文人话 +
+// lookup: 'example.com'..." 一脸懵, 现在 explainError 转成中文人话 +
 // 修复建议 + 原始 error (调试用).
 
 import 'package:s3browser/core/error_messages.dart';
@@ -11,7 +11,7 @@ void main() {
     test('Failed host lookup / errno 7 → DNS 解析失败', () {
       final r = explainError(
         "DioException [connection error]: The connection errored: "
-        "Failed host lookup: 's3.internal.example.com'. "
+        "Failed host lookup: 'example.com'. "
         "OS Error: No address associated with hostname, errno = 7.",
       );
       expect(r.message, contains('DNS'));

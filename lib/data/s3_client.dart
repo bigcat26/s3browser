@@ -86,9 +86,16 @@ class S3Client {
   }) async {
     query ??= {};
     extraHeaders ??= {};
-    final contentLength = body is List<int> ? body.length : null;
+    // content-length 必须进签名头集合, 否则无 body 的请求 (e.g. CopyObject
+    // 的 PUT, HEAD) 由 dio 自动补 Content-Length: 0 发出, 而签名时没算它,
+    // 服务端重算签名对不上 → SignatureDoesNotMatch. 有 body 的 PUT 上传本身
+    // 带 content-length 且被签名, 所以上传正常、只有 copy 这类失败. 这里统一
+    // 显式带 (无 body 用 0), 让"发送的头"和"签名的头"一致.
+    final contentLength = body is List<int> ? body.length : 0;
+    // 单一时间戳: 签名与发出的 x-amz-date 共用, 避免两次 now() 跨秒不一致.
+    final amzNow = DateTime.now().toUtc();
     final headers = <String, String>{
-      if (contentLength != null) 'content-length': '$contentLength',
+      'content-length': '$contentLength',
       ...extraHeaders,
     };
     final payloadHash = _payloadHash(body);
@@ -99,6 +106,7 @@ class S3Client {
       query: query,
       headers: headers,
       payloadHash: payloadHash,
+      nowOverride: amzNow,
     );
     final fullQuery = query.isEmpty ? '' : '?${Uri(queryParameters: query).query}';
     final fullUrl = '$url$fullQuery';
@@ -107,7 +115,7 @@ class S3Client {
       ...headers,
       'Authorization': auth,
       'x-amz-content-sha256': payloadHash,
-      'x-amz-date': _formatAmzDate(DateTime.now().toUtc()),
+      'x-amz-date': _formatAmzDate(amzNow),
     };
 
     final opts = Options(
@@ -194,8 +202,13 @@ class S3Client {
   }
 
   String _sha256HexBytes(List<int> bytes) {
-    // 实际用 dart:crypto 这里简化, 实际调用 S3 时服务端校验
-    return 'UNSIGNED-PAYLOAD';
+    // 真实 SHA256 (crypto 包). 之前这里误返回 'UNSIGNED-PAYLOAD' 常量:
+    // 因为调用方把同一个值同时写进 x-amz-content-sha256 头和签名, 二者
+    // 一致所以签名能过, 但真实 payload 哈希从没被计算. S3 支持
+    // UNSIGNED-PAYLOAD 所以之前"凑巧"能用, 但遇到要求真实校验和的服务端
+    // (Object Lock / 部分严格 MinIO-R2) 会失败. 算真实哈希是 SigV4 标准做法,
+    // 兼容性更好.
+    return sha256.convert(bytes).toString();
   }
 
   String _formatAmzDate(DateTime t) {
@@ -779,8 +792,8 @@ String _truncateBody(String s, int n) =>
 /// 之前 list 把 `@eaDir/` 这种目录也带出来, 用户右键 → 删 → `deletePrefix`
 /// 走 list 返回 0 keys → 直接 break, snackbar 显示 "已删除 0 个对象".
 /// 实际原因:
-///   - `s3.internal.example.com` 这种 server 在 list 时把 `@eaDir` 当成虚拟 CommonPrefix
-///     返回, 但 key 在 S3 里根本不存在 (HEAD 直接 403).
+///   - 某些 S3 兼容服务 (如部分 MinIO / RustFS 部署) 在 list 时把 `@eaDir`
+///     当成虚拟 CommonPrefix 返回, 但 key 在 S3 里根本不存在 (HEAD 直接 403).
 ///   - 即使调 `deleteObjects` 删 `@eaDir/`, server 响应里没 `<Error>`, 我们的
 ///     "keys - errors" 计数当成 1 删成功, 但 list 还是返回它 (server 端
 ///     假数据, 没法真删).

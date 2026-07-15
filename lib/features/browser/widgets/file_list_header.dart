@@ -7,8 +7,11 @@ import '../../../providers/bucket_provider.dart';
 
 /// 文件列表的列头. 仅在列表视图显示, 网格视图不显示.
 ///
-/// 布局跟 [FileTile] 列表模式对齐, 但首列是 select-all checkbox,
-/// 其余列点击可排序 (显示箭头指示当前排序).
+/// 布局跟 [FileTile] 列表模式的两行对齐:
+///   - 第一行: 全选 checkbox + NAME (排序)
+///   - 第二行: MODIFIED (左, 排序) ... SIZE (右, 排序)
+/// 两行都可点击排序 (显示箭头指示当前排序). 把列头拆成两行是为了跟正文
+/// 副标题行 (修改时间左 / 大小右) 的左右位置对齐, 视觉上一一对应.
 class FileListHeader extends ConsumerWidget {
   final List<S3Object> objects;
 
@@ -29,53 +32,45 @@ class FileListHeader extends ConsumerWidget {
         !allSelected && allKeys.any((k) => selected.contains(k));
     final sel = ref.read(selectionProvider.notifier);
 
+    // 行首缩进: checkbox(18) + gap(12) + icon(16) + gap(12) = 58,
+    // 让第二行的 MODIFIED 跟正文 name 左对齐.
+    const leadIndent = 58.0;
+    // 行尾缩进: gap(12) + actions(32) = 44,
+    // 让第二行的 SIZE 跟正文 size 右对齐.
+    const tailIndent = 44.0;
+
+    final selectAll = allKeys.isEmpty
+        ? null
+        : () {
+            if (allSelected) {
+              sel.clear();
+            } else {
+              sel.selectAll(allKeys);
+            }
+          };
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
       decoration: BoxDecoration(
         color: scheme.surfaceContainer,
         border: Border(
           bottom: BorderSide(color: scheme.outline, width: 1),
         ),
       ),
-      // LayoutBuilder 拿实际可用宽, 窄屏 (< 560) 把 MODIFIED 列从 130px 砍到
-      // 60px + 格式从 "YYYY-MM-DD" 变 "MM-DD", 仍然显示但占空间小.
-      // 之前一刀切窄屏直接砍掉整列, 用户手机上看不到修改时间 (反馈 "缺少了
-      // 修改时间列"). 改成 3 档:
-      //   wide (>= 560): 130px "YYYY-MM-DD"
-      //   narrow (< 560): 60px "MM-DD"
-      // 文件名 (NAME) 在 wide 仍吃剩余空间, 在 narrow 也吃剩余空间, 但
-      // 60px + 60px (DATE/SIZE) 留给 NAME 的空间已经够短文件名显示.
-      child: LayoutBuilder(
-        builder: (ctx, c) {
-          final narrow = c.maxWidth < 560;
-          final dateWidth = narrow ? 60.0 : 130.0;
-          return Row(
+      child: Column(
+        children: [
+          // ---- 第一行: 全选 + NAME ----
+          Row(
             children: [
-              // ---- 1: 全选 checkbox (3 态都点击: all → clear, partial/none → selectAll) ----
               SizedBox(
                 width: 18,
                 child: InkWell(
-                  onTap: allKeys.isEmpty
-                      ? null
-                      : () {
-                          if (allSelected) {
-                            sel.clear();
-                          } else {
-                            sel.selectAll(allKeys);
-                          }
-                        },
+                  onTap: selectAll,
                   child: allSelected
-                      ? Icon(
-                          Icons.check_box,
-                          size: 16,
-                          color: scheme.primary,
-                        )
+                      ? Icon(Icons.check_box, size: 16, color: scheme.primary)
                       : partialSelected
-                          ? Icon(
-                              Icons.indeterminate_check_box,
-                              size: 16,
-                              color: scheme.primary,
-                            )
+                          ? Icon(Icons.indeterminate_check_box,
+                              size: 16, color: scheme.primary)
                           : Icon(
                               Icons.check_box_outline_blank,
                               size: 16,
@@ -89,7 +84,6 @@ class FileListHeader extends ConsumerWidget {
               // 图标列 (空, 跟 body 对齐)
               const SizedBox(width: 16),
               const SizedBox(width: 12),
-              // ---- 2: 名称 (排序) ----
               Expanded(
                 child: _HeaderCell(
                   label: 'NAME',
@@ -99,22 +93,28 @@ class FileListHeader extends ConsumerWidget {
                   onTap: () => notifier.setSort(SortBy.name),
                 ),
               ),
-              // ---- 3: 修改时间 (排序, 永远显示, 窄屏压缩) ----
-              SizedBox(
-                width: dateWidth,
+              // 操作列 (空头, 跟 body 对齐)
+              const SizedBox(width: 32),
+            ],
+          ),
+          const SizedBox(height: 2),
+          // ---- 第二行: MODIFIED (左) ... SIZE (右) ----
+          Row(
+            children: [
+              const SizedBox(width: leadIndent),
+              Expanded(
                 child: _HeaderCell(
                   label: 'MODIFIED',
                   sortBy: SortBy.date,
                   active: sortBy,
                   asc: sortAsc,
                   onTap: () => notifier.setSort(SortBy.date),
-                  align: TextAlign.end,
+                  align: TextAlign.start,
                 ),
               ),
-              const SizedBox(width: 16),
-              // ---- 4: 大小 (排序) ----
+              const SizedBox(width: 8),
               SizedBox(
-                width: narrow ? 60 : 72,
+                width: 72,
                 child: _HeaderCell(
                   label: 'SIZE',
                   sortBy: SortBy.size,
@@ -124,12 +124,10 @@ class FileListHeader extends ConsumerWidget {
                   align: TextAlign.end,
                 ),
               ),
-              const SizedBox(width: 12),
-              // ---- 5: 操作列 (空头) ----
-              const SizedBox(width: 32),
+              const SizedBox(width: tailIndent),
             ],
-          );
-        },
+          ),
+        ],
       ),
     );
   }
