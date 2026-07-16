@@ -729,9 +729,10 @@ class _BrowserPageState extends ConsumerState<BrowserPage> {
     final bucket = ref.read(currentBucketProvider);
     if (client == null || bucket == null) return;
 
-    // 默认下载到系统 Downloads 文件夹, 跟 Safari / Chrome / 系统下载管理器
-    // 行为一致. iOS 没公共 Downloads, getLocalDownloadsDir 兜底到 app
-    // Documents/downloads (Apple 隐私模型要求 app 数据隔离).
+    // 默认下载到系统 Downloads 文件夹: macOS 是 ~/Downloads, 安卓是
+    // /sdcard/Download (系统公共目录, 跟系统下载管理器行为一致). iOS 没公共
+    // Downloads, getLocalDownloadsDir 兜底到 app Documents/downloads
+    // (Apple 隐私模型要求 app 数据隔离).
     // 之前用 getApplicationDocumentsDirectory()/s3browser/bucket/obj.name,
     // 手机用户根本找不到这个路径.
     final File saveFile;

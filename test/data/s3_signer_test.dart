@@ -194,6 +194,31 @@ void main() {
       expect(a, isNot(b));
     });
 
+    test('path 已/未 percent-encode 幂等 (中文 key 双重编码回归)', () {
+      final signer = newSigner();
+      // 入参是已经 _encodePath 过的 path (中文 key 编码后的形态).
+      // 之前 _canonicalUri 再 encode 一次 → 双重编码 %25E7..., 与实际请求
+      // URL 对不上 → SignatureDoesNotMatch. 修复后: 未编码与已编码路径
+      // 应得到相同 canonical URI → 相同签名.
+      final raw = signer.sign(
+        method: 'PUT',
+        host: 's3.amazonaws.com',
+        path: '/my-bucket/福建.pdf',
+        query: {},
+        headers: {},
+        payloadHash: 'UNSIGNED-PAYLOAD',
+      );
+      final preEncoded = signer.sign(
+        method: 'PUT',
+        host: 's3.amazonaws.com',
+        path: '/my-bucket/%E7%A6%8F%E5%BB%BA.pdf',
+        query: {},
+        headers: {},
+        payloadHash: 'UNSIGNED-PAYLOAD',
+      );
+      expect(preEncoded, equals(raw));
+    });
+
     test('extra headers 拼到 SignedHeaders 里', () {
       final signer = newSigner();
       final auth = signer.sign(

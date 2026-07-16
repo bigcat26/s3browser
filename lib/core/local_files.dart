@@ -6,14 +6,15 @@
 // 跟用户 "下载" 的预期完全不符.
 //
 // 改成:
-//   - Android: /storage/emulated/0/Download/  (系统 Downloads 公共目录, 用户
-//     在文件管理 / 相册 / "我的下载" 都能看到)
+//   - Android: /sdcard/Download/  (系统 Downloads 公共目录, /sdcard 是
+//     /storage/emulated/0 的软链; 用户在文件管理 / 相册 / "我的下载" 都能看到)
 //   - macOS:   ~/Downloads/  (跟 Safari / Chrome 下载行为一致)
 //   - iOS:     app Documents/Downloads/  (iOS 没公共 Downloads, 隐私模型要求
 //              app 数据隔离. 用户想导出走 AirDrop / iTunes File Sharing)
 //
 // path_provider 的 getDownloadsDirectory():
-//   - Android: 返回公共 Downloads 路径 (null 在某些 scoped storage 设备上)
+//   - Android: 返回公共 Downloads 路径 (/sdcard/Download, null 在某些
+//     scoped storage 设备上)
 //   - iOS:     返回 app Documents (per package docs)
 //   - macOS:   返回 ~/Downloads
 // 走它 + 兜底 (null 时退到 app Documents/downloads) 跨平台一套逻辑.

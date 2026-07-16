@@ -86,16 +86,24 @@ class S3Client {
   }) async {
     query ??= {};
     extraHeaders ??= {};
-    // content-length 必须进签名头集合, 否则无 body 的请求 (e.g. CopyObject
-    // 的 PUT, HEAD) 由 dio 自动补 Content-Length: 0 发出, 而签名时没算它,
-    // 服务端重算签名对不上 → SignatureDoesNotMatch. 有 body 的 PUT 上传本身
-    // 带 content-length 且被签名, 所以上传正常、只有 copy 这类失败. 这里统一
-    // 显式带 (无 body 用 0), 让"发送的头"和"签名的头"一致.
+    // content-length 的取舍: 服务端是否把它算进签名, 取决于"该请求是否该有
+    // body". 实测 s3.internal.example.com:
+    //   - PUT/POST/DELETE 服务端会签 content-length (PUT 即使无 body 也按 0 算),
+    //     不带 → 签名对不上 (原 CopyObject 重命名就栽在这).
+    //   - GET/HEAD 服务端不对"无 body 请求"签 content-length, 强行带 0 反而让
+    //     签名头集合跟服务端不一致 → 登录/列举直接签名不匹配.
+    // 所以: 有 body 或 PUT/POST/DELETE → 带 content-length (无 body 用 0) 并签名;
+    // GET/HEAD → 不带, 恢复改动前行为.
+    final methodUpper = method.toUpperCase();
+    final signsContentLength = body is List<int> ||
+        methodUpper == 'PUT' ||
+        methodUpper == 'POST' ||
+        methodUpper == 'DELETE';
     final contentLength = body is List<int> ? body.length : 0;
     // 单一时间戳: 签名与发出的 x-amz-date 共用, 避免两次 now() 跨秒不一致.
     final amzNow = DateTime.now().toUtc();
     final headers = <String, String>{
-      'content-length': '$contentLength',
+      if (signsContentLength) 'content-length': '$contentLength',
       ...extraHeaders,
     };
     final payloadHash = _payloadHash(body);

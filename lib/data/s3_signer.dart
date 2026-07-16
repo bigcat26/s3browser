@@ -114,7 +114,19 @@ class S3Signer {
   }
 
   String _uriEncode(String s, {required bool isKey}) {
-    return Uri.encodeComponent(s)
+    // 入参可能已经是 percent-encoded (_pathPrefix 走 _encodePath 先编过一遍),
+    // 先 decode 再 encode, 否则中文/特殊字符 key 会被双重编码:
+    //   "福建.pdf" → _encodePath → "%E7%A6%8F..." → 这里再 encode 一次变成
+    //   "%25E7%A6%8F..." , 而实际请求的 URL 仍是 "%E7%A6%8F...", 签名对不上
+    //   → SignatureDoesNotMatch (纯 ASCII 不触发, 所以只有中文等才报错).
+    // decode-then-encode 对任意输入幂等, 与 _encodePath 输出完全一致.
+    String decoded;
+    try {
+      decoded = Uri.decodeComponent(s);
+    } catch (_) {
+      decoded = s; // 含非法 % 序列, 兜底不 decode
+    }
+    return Uri.encodeComponent(decoded)
         .replaceAll('+', '%20')
         .replaceAll('*', '%2A')
         .replaceAll('%7E', '~');
