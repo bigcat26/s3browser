@@ -87,7 +87,7 @@ class S3Client {
     query ??= {};
     extraHeaders ??= {};
     // content-length 的取舍: 服务端是否把它算进签名, 取决于"该请求是否该有
-    // body". 实测 s3.internal.example.com:
+    // body". 实测某私有 S3 服务 (下文以 s3.internal 代称):
     //   - PUT/POST/DELETE 服务端会签 content-length (PUT 即使无 body 也按 0 算),
     //     不带 → 签名对不上 (原 CopyObject 重命名就栽在这).
     //   - GET/HEAD 服务端不对"无 body 请求"签 content-length, 强行带 0 反而让

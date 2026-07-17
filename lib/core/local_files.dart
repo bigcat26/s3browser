@@ -5,16 +5,22 @@
 //   - macOS:  ~/Library/Containers/.../s3browser/, Finder 不直接显示
 // 跟用户 "下载" 的预期完全不符.
 //
-// 改成:
-//   - Android: /sdcard/Download/  (系统 Downloads 公共目录, /sdcard 是
-//     /storage/emulated/0 的软链; 用户在文件管理 / 相册 / "我的下载" 都能看到)
-//   - macOS:   ~/Downloads/  (跟 Safari / Chrome 下载行为一致)
+// 下载落点 (各平台实际返回):
+//   - Android: app 私有外部 Downloads — /sdcard/Android/data/<pkg>/files/downloads
+//     (path_provider 的 getDownloadsDirectory() 在安卓走 getExternalFilesDirs
+//     (DIRECTORY_DOWNLOADS), 返回的是 app 专属目录, 不是公共 /sdcard/Download.
+//     受 scoped storage 约束, 这是安卓 10+ 唯一无需权限、永远可写可读的位置.
+//     用户通过 app 内 "本地下载" 页面查看 / 打开 / 删除, 不在系统文件管理里.)
+//   - macOS:   ~/Downloads/  (跟 Safari / Chrome 下载行为一致, 用户在 Finder 可见)
 //   - iOS:     app Documents/Downloads/  (iOS 没公共 Downloads, 隐私模型要求
 //              app 数据隔离. 用户想导出走 AirDrop / iTunes File Sharing)
 //
+// 选 app 私有目录的原因: 安卓 10+ scoped storage 下, 写公共 /sdcard/Download
+// 需要 MediaStore / SAF, 且写出后难以用 app 直接管理删除. 放沙盒则 app 可读
+// 写删一条龙, 体验更可控.
+//
 // path_provider 的 getDownloadsDirectory():
-//   - Android: 返回公共 Downloads 路径 (/sdcard/Download, null 在某些
-//     scoped storage 设备上)
+//   - Android: 返回 app 私有外部 Downloads (某些设备可能为 null → 走兜底)
 //   - iOS:     返回 app Documents (per package docs)
 //   - macOS:   返回 ~/Downloads
 // 走它 + 兜底 (null 时退到 app Documents/downloads) 跨平台一套逻辑.
